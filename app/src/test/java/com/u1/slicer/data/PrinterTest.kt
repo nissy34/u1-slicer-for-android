@@ -222,4 +222,45 @@ class PrinterTest {
         assertEquals(listOf("stable-u1"), back.printers.map { it.id })
         assertEquals("stable-u1", back.activeId)
     }
+
+    @Test
+    fun `Moonraker api key round-trips through JSON`() {
+        val p = Printer(
+            id = "uuid-key",
+            nickname = "Auth U1",
+            kind = PrinterKind.MOONRAKER,
+            moonrakerUrl = "http://192.168.1.50:7125",
+            moonrakerApiKey = "abc123",
+        )
+        val back = Printer.fromJsonObject(org.json.JSONObject(Printer.toJsonObject(p).toString()))
+        assertEquals("abc123", back.moonrakerApiKey)
+        assertEquals(p as Any, back as Any)
+    }
+
+    @Test
+    fun `legacy printer JSON without api key loads with blank key`() {
+        val json = org.json.JSONObject(
+            """{"id":"old","nickname":"Old","kind":"MOONRAKER","moonrakerUrl":"http://1.2.3.4:7125"}"""
+        )
+        assertEquals("", Printer.fromJsonObject(json).moonrakerApiKey)
+    }
+
+    @Test
+    fun `blank api key is not written to JSON`() {
+        val p = Printer(id = "x", nickname = "x", moonrakerUrl = "http://1.2.3.4:7125")
+        assertFalse(Printer.toJsonObject(p).has("moonrakerApiKey"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `Bambu printer rejects moonraker api key`() {
+        Printer(
+            id = "b",
+            nickname = "b",
+            kind = PrinterKind.BAMBU_LAN,
+            moonrakerApiKey = "abc",
+            bambu = BambuConfig("1.2.3.4", "12345678", "SER", BambuModel.P1S),
+            extruderPresets = emptyList(),
+        )
+    }
+
 }

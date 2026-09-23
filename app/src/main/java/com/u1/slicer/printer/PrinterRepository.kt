@@ -414,7 +414,8 @@ class PrinterRepository(
             return when (next.kind) {
                 PrinterKind.MOONRAKER ->
                     MoonrakerClient.normalizeUrl(current.moonrakerUrl) !=
-                        MoonrakerClient.normalizeUrl(next.moonrakerUrl)
+                        MoonrakerClient.normalizeUrl(next.moonrakerUrl) ||
+                        current.moonrakerApiKey.trim() != next.moonrakerApiKey.trim()
                 PrinterKind.BAMBU_LAN -> current.bambu != next.bambu
             }
         }

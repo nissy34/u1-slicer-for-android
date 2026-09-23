@@ -472,7 +472,7 @@ fun SettingsScreen(
                     com.u1.slicer.ui.printer.PrintersSettingsCard(
                         printers = visiblePrinters,
                         activeId = activePrinterId,
-                        onAdd = { nick, kind, url, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
+                        onAdd = { nick, kind, url, apiKey, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
                             printerViewModel.addPrinter(
                                 nick,
                                 kind,
@@ -481,9 +481,10 @@ fun SettingsScreen(
                                 bambuAccessCode,
                                 bambuSerial,
                                 bambuModel,
+                                moonrakerApiKey = apiKey,
                             )
                         },
-                        onEdit = { id, nick, kind, url, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
+                        onEdit = { id, nick, kind, url, apiKey, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
                             printerViewModel.updatePrinter(
                                 id,
                                 nick,
@@ -493,14 +494,16 @@ fun SettingsScreen(
                                 bambuAccessCode,
                                 bambuSerial,
                                 bambuModel,
+                                moonrakerApiKey = apiKey,
                             )
                         },
                         onDelete = { id -> printerViewModel.deletePrinter(id) },
-                        onTestConnection = { kind, url, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
+                        onTestConnection = { kind, url, apiKey, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
                             when (kind) {
                                 com.u1.slicer.data.PrinterKind.MOONRAKER -> {
                                     val client = com.u1.slicer.network.MoonrakerClient().apply {
                                         baseUrl = com.u1.slicer.network.MoonrakerClient.normalizeUrl(url)
+                                        this.apiKey = apiKey
                                     }
                                     client.testConnection()
                                 }

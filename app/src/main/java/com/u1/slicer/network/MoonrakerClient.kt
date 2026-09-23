@@ -20,7 +20,22 @@ import java.util.concurrent.TimeUnit
 class MoonrakerClient {
     private val TAG = "MoonrakerClient"
 
+    /** Moonraker API key; when non-blank every request carries `X-Api-Key`. */
+    @Volatile
+    var apiKey: String = ""
+        set(value) {
+            field = value.trim()
+        }
+
     private val client = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val key = apiKey
+            val req = chain.request()
+            chain.proceed(
+                if (key.isBlank()) req
+                else req.newBuilder().header(API_KEY_HEADER, key).build()
+            )
+        }
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
@@ -120,6 +135,34 @@ class MoonrakerClient {
     }
 
     companion object {
+        const val API_KEY_HEADER = "X-Api-Key"
+
+        /**
+         * True when [targetUrl] is on the same host as the Moonraker [baseUrl], i.e. it is safe
+         * to attach the API key. Keeps the key away from third-party webcam hosts.
+         */
+        fun isSameHost(baseUrl: String, targetUrl: String): Boolean = try {
+            val baseHost = java.net.URI(baseUrl).host
+            val targetHost = java.net.URI(targetUrl).host
+            !baseHost.isNullOrBlank() && baseHost.equals(targetHost, ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+
+        /**
+         * Build a GET request for a webcam snapshot URL, attaching the API key only when the
+         * snapshot is served from the printer's own host (e.g. Moonraker's
+         * `/server/files/camera/monitor.jpg`).
+         */
+        fun buildSnapshotRequest(snapshotUrl: String, printerBaseUrl: String, apiKey: String): Request {
+            val builder = Request.Builder().url(snapshotUrl)
+            val key = apiKey.trim()
+            if (key.isNotBlank() && isSameHost(printerBaseUrl, snapshotUrl)) {
+                builder.header(API_KEY_HEADER, key)
+            }
+            return builder.build()
+        }
+
         /** Normalizes a printer URL: adds http:// scheme and :7125 port if missing. */
         fun normalizeUrl(raw: String): String {
             var url = raw.trim()
@@ -168,7 +211,13 @@ class MoonrakerClient {
             val ok = response.isSuccessful
             val code = response.code
             response.close()
-            if (ok) null else "HTTP $code — is Moonraker running on this address?"
+            when {
+                ok -> null
+                code == 401 || code == 403 ->
+                    if (apiKey.isBlank()) "HTTP $code — authentication required, set the Moonraker API key"
+                    else "HTTP $code — API key rejected, check the Moonraker API key"
+                else -> "HTTP $code — is Moonraker running on this address?"
+            }
         } catch (e: java.net.ConnectException) {
             "Connection refused — check IP and port (Moonraker default: 7125)"
         } catch (e: java.net.SocketTimeoutException) {

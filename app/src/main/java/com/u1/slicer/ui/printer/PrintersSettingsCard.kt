@@ -47,6 +47,7 @@ fun PrintersSettingsCard(
         nickname: String,
         kind: PrinterKind,
         url: String,
+        apiKey: String,
         bambuIp: String,
         bambuAccessCode: String,
         bambuSerial: String,
@@ -57,6 +58,7 @@ fun PrintersSettingsCard(
         nickname: String,
         kind: PrinterKind,
         url: String,
+        apiKey: String,
         bambuIp: String,
         bambuAccessCode: String,
         bambuSerial: String,
@@ -66,6 +68,7 @@ fun PrintersSettingsCard(
     onTestConnection: suspend (
         kind: PrinterKind,
         url: String,
+        apiKey: String,
         bambuIp: String,
         bambuAccessCode: String,
         bambuSerial: String,
@@ -142,8 +145,8 @@ fun PrintersSettingsCard(
     if (addingNew) {
         PrinterEditDialog(
             existing = null,
-            onSave = { nick, kind, url, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
-                onAdd(nick, kind, url, bambuIp, bambuAccessCode, bambuSerial, bambuModel)
+            onSave = { nick, kind, url, apiKey, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
+                onAdd(nick, kind, url, apiKey, bambuIp, bambuAccessCode, bambuSerial, bambuModel)
             },
             onTest = onTestConnection,
             bambuEnabled = bambuEnabled,
@@ -153,8 +156,8 @@ fun PrintersSettingsCard(
     editing?.let { existing ->
         PrinterEditDialog(
             existing = existing,
-            onSave = { nick, kind, url, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
-                onEdit(existing.id, nick, kind, url, bambuIp, bambuAccessCode, bambuSerial, bambuModel)
+            onSave = { nick, kind, url, apiKey, bambuIp, bambuAccessCode, bambuSerial, bambuModel ->
+                onEdit(existing.id, nick, kind, url, apiKey, bambuIp, bambuAccessCode, bambuSerial, bambuModel)
             },
             onTest = onTestConnection,
             bambuEnabled = bambuEnabled,

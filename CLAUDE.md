@@ -92,7 +92,7 @@ Public vulnerability reports should follow [`SECURITY.md`](SECURITY.md). Keep an
 ## Test
 
 ```bash
-./gradlew testDebugUnitTest                        # 1949 JVM unit tests
+./gradlew testDebugUnitTest                        # 1967 JVM unit tests
 ./gradlew connectedDebugAndroidTest                # 446 instrumented tests — uses Orchestrator
 ```
 
@@ -114,7 +114,7 @@ For local device IDs and any private E2E notes, consult `E2E_TESTING.local.md` i
 
 > **NEVER weaken a test assertion to make a failing test pass.** Do not change `>= 4` to `>= 2`, rename tests to match reduced expectations, or adjust expected values downward. Tests document correct behaviour. A failing test means the code regressed — investigate the root cause and fix the code, not the test.
 
-### Unit tests (`app/src/test/`) - 1949 tests across 204 reported test suites
+### Unit tests (`app/src/test/`) - 1967 tests across 204 reported test suites
 - `gcode/GcodeParserTest.kt` (36) — G-code parsing: layers, extrusion, extruder switching, ;TYPE: feature-type tagging, wipeTowerFilamentMm, B52 maxMoves cap + stride distribution, B67 perExtruderFilamentMm canonical footer order, multi-digit T-index (T15) high-tool attribution
 - `gcode/GcodeValidatorTest.kt` (45) — Tool changes, nozzle temps, layer count, prime tower footprint, bed bounds validation
 - `gcode/ExcludeObjectParserTest.kt` (5) — F72: parse NAME/CENTER/POLYGON from EXCLUDE_OBJECT_DEFINE lines; missing POLYGON graceful fallback; multiple objects; empty file; ignores START/END lines
@@ -124,7 +124,7 @@ For local device IDs and any private E2E notes, consult `E2E_TESTING.local.md` i
 - `viewer/StlParserTest.kt` (10) — Binary/ASCII STL parsing, bounding box, vertex data, 10-float vertex format
 - `viewer/MeshDataTest.kt` (12) — MeshData 10-float vertex format, extruderIndices, recolor(), RGBA values, multi-extruder recolor, F95 recolor paints trailing modifier block translucent (modifierBlockStartTriangle boundary) while model parts keep palette colour
 - `network/MakerWorldUtilsTest.kt` (36) — URL parsing, design→instance ID resolution, download response parsing, error classification, cookie sanitization
-- `network/MoonrakerClientTest.kt` (38) — PrinterStatus computed properties, URL normalization, LED state, remoteScreenUrl(), B33 virtual_sdcard progress parsing, sendGcode network path, queryWebcamSnapshotCandidates monitor.jpg appending
+- `network/MoonrakerClientTest.kt` (45) — PrinterStatus computed properties, URL normalization, LED state, remoteScreenUrl(), B33 virtual_sdcard progress parsing, sendGcode network path, queryWebcamSnapshotCandidates monitor.jpg appending, X-Api-Key auth header (set/blank/all requests), 401 auth error messages, same-host-only snapshot key
 - `data/SliceConfigTest.kt` (25) — Default values match Snapmaker U1 hardware specs, wipe tower bounds clamping
 - `data/DataClassesTest.kt` (17) — FilamentProfile, SliceJob, GcodeMove, ModelInfo, WipeTowerInfo
 - `data/SliceJobMappingResolutionTest.kt` (10) — historical job export mapping: legacy physical rows, single-colour selected slot, canonical-wide CSV, blank/malformed fallbacks, physical/canonical G-code tool-space rows

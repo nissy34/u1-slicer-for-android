@@ -143,4 +143,22 @@ class PrinterRepositoryTest {
         assertTrue(PrinterRepository.shouldRecreateTransport(moonraker, bambu))
         assertTrue(PrinterRepository.shouldRecreateTransport(bambu, bambuIpChanged))
     }
+
+    @Test
+    fun shouldRecreateTransport_detects_moonraker_api_key_change() {
+        val current = Printer(
+            id = "moonraker-1",
+            nickname = "Workshop",
+            kind = PrinterKind.MOONRAKER,
+            moonrakerUrl = "http://printer.local:7125",
+        )
+        assertTrue(PrinterRepository.shouldRecreateTransport(current, current.copy(moonrakerApiKey = "new")))
+        assertFalse(
+            PrinterRepository.shouldRecreateTransport(
+                current.copy(moonrakerApiKey = "k"),
+                current.copy(moonrakerApiKey = " k "),
+            )
+        )
+    }
+
 }

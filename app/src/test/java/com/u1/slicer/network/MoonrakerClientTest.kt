@@ -437,6 +437,112 @@ class MoonrakerClientTest {
         )
         server.shutdown()
     }
+
+    // --- API key auth (X-Api-Key) ---
+
+    @Test
+    fun `requests carry X-Api-Key header when apiKey is set`() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        server.start()
+        val client = MoonrakerClient().also {
+            it.baseUrl = server.url("/").toString().trimEnd('/')
+            it.apiKey = "  secret-key  "
+        }
+        assertTrue(client.sendGcode("G28"))
+        val recorded = server.takeRequest()
+        assertEquals("secret-key", recorded.getHeader(MoonrakerClient.API_KEY_HEADER))
+        server.shutdown()
+    }
+
+    @Test
+    fun `requests omit X-Api-Key header when apiKey is blank`() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        server.start()
+        val client = MoonrakerClient().also { it.baseUrl = server.url("/").toString().trimEnd('/') }
+        assertTrue(client.sendGcode("G28"))
+        assertNull(server.takeRequest().getHeader(MoonrakerClient.API_KEY_HEADER))
+        server.shutdown()
+    }
+
+    @Test
+    fun `api key header applies to connection test and upload requests`() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        server.enqueue(MockResponse().setResponseCode(201).setBody("{}"))
+        server.start()
+        val client = MoonrakerClient().also {
+            it.baseUrl = server.url("/").toString().trimEnd('/')
+            it.apiKey = "k1"
+        }
+        assertNull(client.testConnection())
+        val tmp = java.io.File.createTempFile("auth", ".gcode").apply { writeText("G28\n") }
+        client.uploadGcode(tmp, "auth.gcode")
+        tmp.delete()
+        assertEquals("k1", server.takeRequest().getHeader(MoonrakerClient.API_KEY_HEADER))
+        assertEquals("k1", server.takeRequest().getHeader(MoonrakerClient.API_KEY_HEADER))
+        server.shutdown()
+    }
+
+    @Test
+    fun `testConnection reports missing api key on 401`() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.start()
+        val client = MoonrakerClient().also { it.baseUrl = server.url("/").toString().trimEnd('/') }
+        val result = client.testConnection()
+        assertNotNull(result)
+        assertTrue("got: $result", result!!.contains("authentication required", ignoreCase = true))
+        server.shutdown()
+    }
+
+    @Test
+    fun `testConnection reports rejected api key on 401 when key is set`() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.start()
+        val client = MoonrakerClient().also {
+            it.baseUrl = server.url("/").toString().trimEnd('/')
+            it.apiKey = "wrong"
+        }
+        val result = client.testConnection()
+        assertNotNull(result)
+        assertTrue("got: $result", result!!.contains("API key rejected"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `buildSnapshotRequest attaches key only for same-host snapshot urls`() {
+        val base = "http://192.168.1.50:7125"
+        val sameHost = MoonrakerClient.buildSnapshotRequest(
+            "http://192.168.1.50:7125/server/files/camera/monitor.jpg", base, "k1",
+        )
+        assertEquals("k1", sameHost.header(MoonrakerClient.API_KEY_HEADER))
+
+        val sameHostOtherPort = MoonrakerClient.buildSnapshotRequest(
+            "http://192.168.1.50/webcam/?action=snapshot", base, "k1",
+        )
+        assertEquals("k1", sameHostOtherPort.header(MoonrakerClient.API_KEY_HEADER))
+
+        val otherHost = MoonrakerClient.buildSnapshotRequest(
+            "http://camera.example.com/snapshot.jpg", base, "k1",
+        )
+        assertNull(otherHost.header(MoonrakerClient.API_KEY_HEADER))
+
+        val noKey = MoonrakerClient.buildSnapshotRequest(
+            "http://192.168.1.50:7125/server/files/camera/monitor.jpg", base, " ",
+        )
+        assertNull(noKey.header(MoonrakerClient.API_KEY_HEADER))
+    }
+
+    @Test
+    fun `isSameHost is case-insensitive and false for unparseable urls`() {
+        assertTrue(MoonrakerClient.isSameHost("http://Printer.local:7125", "http://printer.LOCAL/x"))
+        assertFalse(MoonrakerClient.isSameHost("", "http://printer.local/x"))
+        assertFalse(MoonrakerClient.isSameHost("http://printer.local", "not a url"))
+    }
+
 }
 
 // MoonrakerClientTestHelper removed — tests now use MoonrakerClient.normalizeUrl() directly.

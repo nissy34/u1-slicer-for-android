@@ -17,6 +17,7 @@ class DefaultPrinterTransportFactory(
             MoonrakerTransport(
                 moonrakerClientFactory().also { client ->
                     client.baseUrl = MoonrakerClient.normalizeUrl(printer.moonrakerUrl)
+                    client.apiKey = printer.moonrakerApiKey
                 }
             )
         }

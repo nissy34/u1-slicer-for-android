@@ -185,4 +185,28 @@ class PrinterViewModelTest {
         assertEquals("12345678", printer.bambu?.accessCode)
         assertEquals("P1S123ABC", printer.bambu?.serial)
     }
+
+    @Test
+    fun `buildPrinter trims moonraker api key and fingerprint tracks it`() {
+        val printer = PrinterViewModel.buildPrinter(
+            id = "moonraker-1",
+            fallbackNickname = "Printer 1",
+            existingExtruderPresets = defaultExtruderPresets(),
+            nickname = "U1",
+            kind = PrinterKind.MOONRAKER,
+            url = "printer.local",
+            bambuIp = "",
+            bambuAccessCode = "",
+            bambuSerial = "",
+            bambuModel = BambuModel.P1S,
+            moonrakerApiKey = "  key-1  ",
+        )
+
+        assertEquals("key-1", printer.moonrakerApiKey)
+        org.junit.Assert.assertNotEquals(
+            PrinterViewModel.printerConnectionFingerprint(printer),
+            PrinterViewModel.printerConnectionFingerprint(printer.copy(moonrakerApiKey = "key-2")),
+        )
+    }
+
 }

@@ -126,7 +126,10 @@ fun PrinterScreen(
     var showFullscreen by remember { mutableStateOf(false) }
     var candidateIndex by remember { mutableStateOf(0) }
 
-    LaunchedEffect(webcamCandidates) {
+    val moonrakerBaseUrl = activePrinter?.moonrakerUrl.orEmpty()
+    val moonrakerApiKey = activePrinter?.moonrakerApiKey.orEmpty()
+
+    LaunchedEffect(webcamCandidates, moonrakerBaseUrl, moonrakerApiKey) {
         candidateIndex = 0
         if (webcamCandidates.isEmpty()) return@LaunchedEffect
         val http = OkHttpClient.Builder()
@@ -140,7 +143,11 @@ fun PrinterScreen(
             val pollUrl = "$baseUrl${sep}_cb=${System.currentTimeMillis()}"
             try {
                 val bytes = withContext(Dispatchers.IO) {
-                    val resp = http.newCall(Request.Builder().url(pollUrl).build()).execute()
+                    val resp = http.newCall(
+                        com.u1.slicer.network.MoonrakerClient.buildSnapshotRequest(
+                            pollUrl, moonrakerBaseUrl, moonrakerApiKey,
+                        )
+                    ).execute()
                     val b = resp.body?.bytes()
                     resp.close()
                     b

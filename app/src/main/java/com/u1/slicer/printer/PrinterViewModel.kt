@@ -360,6 +360,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
         bambuAccessCode: String = "",
         bambuSerial: String = "",
         bambuModel: BambuModel = BambuModel.P1S,
+        moonrakerApiKey: String = "",
     ) {
         viewModelScope.launch {
             val printer = buildPrinter(
@@ -373,6 +374,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
                 bambuAccessCode = bambuAccessCode,
                 bambuSerial = bambuSerial,
                 bambuModel = bambuModel,
+                moonrakerApiKey = moonrakerApiKey,
             )
             printersRepo.add(printer)
         }
@@ -387,6 +389,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
         bambuAccessCode: String = "",
         bambuSerial: String = "",
         bambuModel: BambuModel = BambuModel.P1S,
+        moonrakerApiKey: String = "",
     ) {
         viewModelScope.launch {
             val current = printerList.value.firstOrNull { it.id == id } ?: return@launch
@@ -401,6 +404,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
                     bambuAccessCode = bambuAccessCode,
                     bambuSerial = bambuSerial,
                     bambuModel = bambuModel,
+                    moonrakerApiKey = moonrakerApiKey,
                 )
             val activeId = printersRepo.config.first()?.activeId
             if (id == activeId && printerConnectionFingerprint(current) != printerConnectionFingerprint(updated)) {
@@ -745,6 +749,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
                 printer.id,
                 printer.kind.name,
                 com.u1.slicer.network.MoonrakerClient.normalizeUrl(printer.moonrakerUrl),
+                printer.moonrakerApiKey.trim(),
             ).joinToString("|")
             PrinterKind.BAMBU_LAN -> printer.bambu?.let { bambu ->
                 listOf(
@@ -770,6 +775,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
             bambuAccessCode: String,
             bambuSerial: String,
             bambuModel: BambuModel,
+            moonrakerApiKey: String = "",
         ): Printer {
             val resolvedNickname = nickname.ifBlank { fallbackNickname }
             return when (kind) {
@@ -778,6 +784,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
                     nickname = resolvedNickname,
                     kind = PrinterKind.MOONRAKER,
                     moonrakerUrl = com.u1.slicer.network.MoonrakerClient.normalizeUrl(url),
+                    moonrakerApiKey = moonrakerApiKey.trim(),
                     bambu = null,
                     extruderPresets = existingExtruderPresets,
                 )

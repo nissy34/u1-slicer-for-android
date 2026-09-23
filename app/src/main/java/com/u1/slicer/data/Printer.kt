@@ -39,6 +39,8 @@ data class Printer(
     val nickname: String,
     val kind: PrinterKind = PrinterKind.MOONRAKER,
     val moonrakerUrl: String = "",
+    /** Optional Moonraker API key, sent as `X-Api-Key`. Blank = no auth. */
+    val moonrakerApiKey: String = "",
     val bambu: BambuConfig? = null,
     val extruderPresets: List<ExtruderPreset> = defaultExtruderPresets(),
 ) {
@@ -50,6 +52,7 @@ data class Printer(
             PrinterKind.BAMBU_LAN -> {
                 require(bambu != null) { "Bambu printer requires bambu config" }
                 require(moonrakerUrl.isBlank()) { "Bambu printer must not have moonrakerUrl" }
+                require(moonrakerApiKey.isBlank()) { "Bambu printer must not have moonrakerApiKey" }
             }
         }
     }
@@ -60,6 +63,7 @@ data class Printer(
             put("nickname", p.nickname)
             put("kind", p.kind.name)
             put("moonrakerUrl", p.moonrakerUrl)
+            if (p.moonrakerApiKey.isNotBlank()) put("moonrakerApiKey", p.moonrakerApiKey)
             if (p.bambu != null) put("bambu", BambuConfig.toJsonObject(p.bambu))
             put("extruderPresets", JSONArray(serializeExtruderPresets(p.extruderPresets)))
         }
@@ -78,6 +82,7 @@ data class Printer(
                 nickname = obj.getString("nickname"),
                 kind = kind,
                 moonrakerUrl = obj.optString("moonrakerUrl", ""),
+                moonrakerApiKey = obj.optString("moonrakerApiKey", ""),
                 bambu = obj.optJSONObject("bambu")?.let(BambuConfig::fromJsonObject),
                 extruderPresets = extruderPresets,
             )

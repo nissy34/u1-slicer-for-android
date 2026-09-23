@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.u1.slicer.data.BambuModel
 import com.u1.slicer.data.Printer
@@ -40,6 +43,7 @@ fun PrinterEditDialog(
         nickname: String,
         kind: PrinterKind,
         url: String,
+        apiKey: String,
         bambuIp: String,
         bambuAccessCode: String,
         bambuSerial: String,
@@ -48,6 +52,7 @@ fun PrinterEditDialog(
     onTest: suspend (
         kind: PrinterKind,
         url: String,
+        apiKey: String,
         bambuIp: String,
         bambuAccessCode: String,
         bambuSerial: String,
@@ -59,6 +64,7 @@ fun PrinterEditDialog(
     var nickname by remember { mutableStateOf(existing?.nickname ?: "") }
     var kind by remember { mutableStateOf(existing?.kind ?: PrinterKind.MOONRAKER) }
     var url by remember { mutableStateOf(existing?.moonrakerUrl ?: "") }
+    var apiKey by remember { mutableStateOf(existing?.moonrakerApiKey ?: "") }
     var bambuIp by remember { mutableStateOf(existing?.bambu?.ip ?: "") }
     var bambuAccessCode by remember { mutableStateOf(existing?.bambu?.accessCode ?: "") }
     var bambuSerial by remember { mutableStateOf(existing?.bambu?.serial ?: "") }
@@ -135,6 +141,19 @@ fun PrinterEditDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = { apiKey = it; testResult = null },
+                        label = { Text("API key (optional)") },
+                        placeholder = { Text("Only if Moonraker requires auth") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            autoCorrect = false,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 } else {
                     ExposedDropdownMenuBox(
                         expanded = modelExpanded,
@@ -198,6 +217,7 @@ fun PrinterEditDialog(
                                 testResult = onTest(
                                     kind,
                                     url,
+                                    apiKey,
                                     bambuIp,
                                     bambuAccessCode,
                                     bambuSerial,
@@ -229,6 +249,7 @@ fun PrinterEditDialog(
                         nickname,
                         kind,
                         url,
+                        apiKey,
                         bambuIp,
                         bambuAccessCode,
                         bambuSerial,

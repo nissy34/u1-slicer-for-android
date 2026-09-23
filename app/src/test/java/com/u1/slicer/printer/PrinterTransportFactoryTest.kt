@@ -122,4 +122,23 @@ class PrinterTransportFactoryTest {
         assertTrue(transport is BambuLanTransport)
         assertNull(kotlinx.coroutines.runBlocking { transport.testConnection() })
     }
+
+    @Test
+    fun `factory passes moonraker api key to client`() {
+        val client = MoonrakerClient()
+        val factory = DefaultPrinterTransportFactory(moonrakerClientFactory = { client })
+
+        factory.create(
+            Printer(
+                id = "moonraker-auth",
+                nickname = "U1",
+                kind = PrinterKind.MOONRAKER,
+                moonrakerUrl = "192.168.1.50",
+                moonrakerApiKey = "secret",
+            )
+        )
+
+        assertEquals("secret", client.apiKey)
+    }
+
 }
