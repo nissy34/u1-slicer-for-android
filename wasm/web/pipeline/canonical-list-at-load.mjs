@@ -26,9 +26,13 @@ export function collectPaintSpecs(bytes, onSpec) {
   const n1 = 'paint_color="';
   const n2 = 'mmu_segmentation="';
   let pos = 0;
+  // Next occurrence of each needle, re-searched only once passed: re-scanning
+  // for an absent needle on every match made this quadratic on 40 MB models.
+  let a = -2;
+  let b = -2;
   for (;;) {
-    const a = text.indexOf(n1, pos);
-    const b = text.indexOf(n2, pos);
+    if (a !== -1 && a < pos) a = text.indexOf(n1, pos);
+    if (b !== -1 && b < pos) b = text.indexOf(n2, pos);
     let matchIdx;
     let matchLen;
     if (a === -1 && b === -1) break;
