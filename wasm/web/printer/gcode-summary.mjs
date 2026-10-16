@@ -133,3 +133,23 @@ export function sharedHeads(heads) {
   heads.forEach((h, k) => seen.set(h, [...(seen.get(h) ?? []), k]));
   return [...seen.entries()].filter(([, ks]) => ks.length > 1).map(([h]) => h);
 }
+
+/**
+ * The largest embedded thumbnail ("; thumbnail begin WxH LEN" … "; thumbnail end",
+ * also Orca's "; thumbnail_PNG begin") as a data: URL, or null. Only looks at
+ * the head of the file, where slicers put them.
+ */
+export function extractThumbnail(text, maxScan = 2 * 2 ** 20) {
+  const head = String(text).slice(0, maxScan);
+  let best = null;
+  const re = /^; thumbnail(?:_(PNG|JPG|QOI))? begin (\d+)x(\d+)[^\n]*\n([\s\S]*?)^; thumbnail(?:_\w+)? end/gm;
+  for (const m of head.matchAll(re)) {
+    const fmt = (m[1] ?? 'PNG').toUpperCase();
+    if (fmt === 'QOI') continue;
+    const area = Number(m[2]) * Number(m[3]);
+    if (best && best.area >= area) continue;
+    const b64 = m[4].split('\n').map((l) => l.replace(/^;\s?/, '').trim()).join('');
+    if (/^[A-Za-z0-9+/=]+$/.test(b64)) best = { area, url: `data:image/${fmt === 'JPG' ? 'jpeg' : 'png'};base64,${b64}` };
+  }
+  return best?.url ?? null;
+}

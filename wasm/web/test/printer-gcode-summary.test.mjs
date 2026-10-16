@@ -107,3 +107,12 @@ test('material mismatch and shared-head notes', () => {
   assert.deepEqual(materialMismatches(cards, [1, 0], slots), ['Sliced as PLA but E2 has PETG', 'Sliced as PETG but E1 has PLA']);
   assert.deepEqual(sharedHeads([2, 2, 1]), [2]);
 });
+
+test('largest PNG thumbnail is extracted as a data URL', async () => {
+  const { extractThumbnail } = await import('../printer/gcode-summary.mjs');
+  const g = '; thumbnail begin 16x16 8\n; AAAA\n; BBBB\n; thumbnail end\n; thumbnail begin 300x300 8\n; CCCC\n; DDDD\n; thumbnail end\nG28\n';
+  assert.equal(extractThumbnail(g), 'data:image/png;base64,CCCCDDDD');
+  assert.equal(extractThumbnail('G28\n'), null);
+  const real = readFileSync(new URL('../../../docs/issue-evidence/issue-116/outputcookie.gcode', import.meta.url), 'utf8');
+  assert.match(extractThumbnail(real), /^data:image\/png;base64,iVBOR/);
+});

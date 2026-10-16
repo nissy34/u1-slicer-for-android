@@ -228,7 +228,8 @@ export async function startMockMoonraker({ port = 0, host = '127.0.0.1', apiKey 
     if (req.headers['content-type']?.includes('application/json')) { try { rec.json = JSON.parse(body.toString()); } catch { /* ignore */ } }
     requests.push(rec);
 
-    if (apiKey && req.headers['x-api-key'] !== apiKey) return err(401, 'Unauthorized');
+    // /webcam/ stands in for the printer's nginx-served mjpg-streamer, which has no API key.
+    if (apiKey && req.headers['x-api-key'] !== apiKey && !path.startsWith('/webcam/')) return err(401, 'Unauthorized');
 
     try {
       if (path === '/server/info') return ok({ klippy_connected: true, klippy_state: 'ready', moonraker_version: 'v0.9.3-mock', components: ['webcam', 'file_manager'] });
