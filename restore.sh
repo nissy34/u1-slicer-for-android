@@ -2,7 +2,7 @@
 # Restore prebuilt wasm deps + engine build tree into a checkout of
 # nissy34/u1-slicer-for-android (branch claude/wasm-spike or descendants).
 #
-#   bash <(git -C /home/user/u1-slicer-for-android show origin/wasm-prebuilt-cache:restore.sh)
+#   cd /home/user/u1-slicer-for-android && git fetch origin wasm-prebuilt-cache && bash <(git show FETCH_HEAD:restore.sh)
 #
 # Requirements for the engine build tree to be reused as-is (it records
 # absolute paths): repo at /home/user/u1-slicer-for-android, emsdk 6.0.12 at
@@ -11,8 +11,9 @@ set -euo pipefail
 REPO=${REPO:-/home/user/u1-slicer-for-android}
 cd "$REPO"
 git fetch -q origin wasm-prebuilt-cache
+REV=$(git rev-parse FETCH_HEAD)   # works in single-branch clones too
 mkdir -p wasm/build
-for f in deps.tgz engine.tgz; do git show "origin/wasm-prebuilt-cache:$f" | tar -xzf - -C wasm/build; done
+for f in deps.tgz engine.tgz; do git show "$REV:$f" | tar -xzf - -C wasm/build; done
 # Fresh checkouts give every source a new mtime; make the restored outputs
 # newer so ninja reuses them instead of recompiling everything.
 find wasm/build/engine -type f -exec touch {} +
