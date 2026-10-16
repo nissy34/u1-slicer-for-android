@@ -1,40 +1,30 @@
 #!/usr/bin/env node
-// Static server for the WASM spike demo. The engine uses pthreads
-// (SharedArrayBuffer), which browsers only enable on cross-origin-isolated
-// pages, so every response carries COOP/COEP.
+// Dev server for the web slicer: serves SITE_FILES (the same set package.mjs
+// deploys) with the COOP/COEP headers the engine needs.
 //
-//   node wasm/web/serve.mjs [port]      # then open http://localhost:8080/
+//   node wasm/web/serve.mjs [port] [--host 0.0.0.0]
 //
-// Serves wasm/web/ and, for u1slicer.{js,wasm}, wasm/build/engine/.
+// Plain HTTP on purpose: with --host 0.0.0.0 you can open it from another
+// device on your LAN and still reach a printer over http (an https page can't).
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname } from 'node:path';
+import { CONTENT_TYPES, HEADERS, SITE_FILES } from './site-files.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const roots = [here, join(here, '../build/engine')];
-const port = Number(process.argv[2] ?? 8080);
-const types = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
-  '.wasm': 'application/wasm', '.json': 'application/json', '.css': 'text/css',
-};
+const args = process.argv.slice(2);
+const hostIdx = args.indexOf('--host');
+const host = hostIdx >= 0 ? args.splice(hostIdx, 2)[1] : '127.0.0.1';
+const port = Number(args[0] ?? 8080);
 
 createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x');
-  const rel = normalize(decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)).replace(/^([/\\])+/, '');
-  if (rel.startsWith('..')) { res.writeHead(400).end(); return; }
-  for (const root of roots) {
-    try {
-      const body = await readFile(join(root, rel));
-      res.writeHead(200, {
-        'Content-Type': types[extname(rel)] ?? 'application/octet-stream',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Cache-Control': 'no-cache',
-      });
-      res.end(body);
-      return;
-    } catch { /* try next root */ }
+  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '') || 'index.html';
+  const src = SITE_FILES[path];
+  if (!src) { res.writeHead(404, HEADERS).end('not found'); return; }
+  try {
+    const body = await readFile(src);
+    res.writeHead(200, { ...HEADERS, 'Content-Type': CONTENT_TYPES[extname(path)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.end(body);
+  } catch {
+    res.writeHead(500, HEADERS).end(`missing ${src} — build the engine / npm install first`);
   }
-  res.writeHead(404).end('not found');
-}).listen(port, () => console.log(`U1 slicer wasm demo: http://localhost:${port}/`));
+}).listen(port, host, () => console.log(`U1 web slicer: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`));

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 // WASM spike CLI: slice a model with the wasm engine under Node.js.
 //
-//   node wasm/node/slice.mjs <model.stl|model.3mf> <out.gcode> [config.json] [--plate N]
+//   node wasm/node/slice.mjs <model.stl|model.3mf> <out.gcode> [config.json] [--plate N] [--app-defaults]
+//
+// --app-defaults starts from the config the Android app sends for a plain model
+// (wasm/web/app-defaults.mjs: U1 speeds, material temps, PRINT_START/PRINT_END
+// machine G-code); config.json is layered on top. Optional "material" /
+// "plate" keys in config.json pick the defaults' temperatures.
 //
 // config.json uses the C++ sapil::SliceConfig field names (snake_case), e.g.
 //   { "layer_height": 0.2, "fill_density": 0.15, "nozzle_temp": 220 }
@@ -17,6 +22,9 @@ const require = createRequire(import.meta.url);
 const modulePath = process.env.U1SLICER_WASM_JS ?? resolve(here, '../build/engine/u1slicer.js');
 
 const args = process.argv.slice(2);
+const appDefaultsIdx = args.indexOf('--app-defaults');
+const useAppDefaults = appDefaultsIdx >= 0;
+if (useAppDefaults) args.splice(appDefaultsIdx, 1);
 const plateIdx = args.indexOf('--plate');
 const plate = plateIdx >= 0 ? Number(args.splice(plateIdx, 2)[1]) : 0;
 const [modelArg, outArg, configArg] = args;
@@ -25,7 +33,14 @@ if (!modelArg || !outArg) {
   process.exit(2);
 }
 
-const config = configArg ? JSON.parse(readFileSync(configArg, 'utf8')) : {};
+let config = configArg ? JSON.parse(readFileSync(configArg, 'utf8')) : {};
+if (useAppDefaults) {
+  const { appSliceDefaults } = await import('../web/app-defaults.mjs');
+  const printer = JSON.parse(readFileSync(
+    resolve(here, '../../app/src/main/assets/orca_profiles/printer/snapmaker_u1.json'), 'utf8'));
+  const { material, plate: plateType, ...rest } = config;
+  config = { ...appSliceDefaults(printer, { material, plate: plateType }), ...rest };
+}
 for (const key of ['machine_start_gcode', 'machine_end_gcode', 'machine_change_filament_gcode']) {
   const file = config[`${key}_file`];
   if (file) {
@@ -61,12 +76,16 @@ const result = JSON.parse(engine.slice(JSON.stringify(config), (pct, stage) => {
 const tSlice = performance.now();
 
 console.error(`result: ${JSON.stringify(result)}`);
-if (!result.success) process.exit(1);
+if (!result.success) {
+  console.error(`wasm heap ${(engine.heapBytes() / 2 ** 20).toFixed(0)}MB`);
+  process.exit(1);
+}
 
 writeFileSync(outArg, engine.FS.readFile(result.gcodePath));
 const mem = process.memoryUsage();
 console.error(
   `timing: init ${(tInit - t0).toFixed(0)}ms, load ${(tLoad - tInit).toFixed(0)}ms, ` +
-  `slice ${(tSlice - tLoad).toFixed(0)}ms; rss ${(mem.rss / 2 ** 20).toFixed(0)}MB`);
+  `slice ${(tSlice - tLoad).toFixed(0)}ms; wasm heap ${(engine.heapBytes() / 2 ** 20).toFixed(0)}MB, ` +
+  `rss ${(mem.rss / 2 ** 20).toFixed(0)}MB`);
 // Pthread workers keep the event loop alive; exit explicitly.
 process.exit(0);

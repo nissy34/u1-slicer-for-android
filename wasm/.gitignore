@@ -1,2 +1,3 @@
 # WASM spike build outputs (deps, engine)
 build/
+node_modules/

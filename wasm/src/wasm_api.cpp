@@ -74,7 +74,29 @@ std::string slice(const std::string& configJson, emscripten::val onProgress) {
         .dump();
 }
 
+// Prepare-preview mesh of the loaded model (the same native mesh the app's
+// Prepare screen renders): { positions: Float32Array (9 floats / triangle,
+// bed space mm), extruders: Uint8Array (0-based slot per triangle) }.
+// maxTriangles 0 = engine's own budget.
+emscripten::val previewMesh(int maxTriangles) {
+    const sapil::PreviewMesh m = engine().getPreparePreviewMesh(maxTriangles);
+    emscripten::val out = emscripten::val::object();
+    // typed_memory_view aliases wasm memory; slice() copies it out before m dies.
+    out.set("positions", emscripten::val(emscripten::typed_memory_view(m.triangle_positions.size(),
+                                                                    m.triangle_positions.data()))
+                             .call<emscripten::val>("slice"));
+    out.set("extruders", emscripten::val(emscripten::typed_memory_view(m.extruder_indices.size(),
+                                                                    m.extruder_indices.data()))
+                             .call<emscripten::val>("slice"));
+    return out;
+}
+
 void clearModel() { engine().clearModel(); }
+
+// Current size of the wasm heap in bytes. Linear memory only ever grows, so
+// after a slice this is that slice's peak — the number to watch against the
+// 4 GB wasm32 ceiling.
+double heapBytes() { return double(__builtin_wasm_memory_size(0)) * 65536.0; }
 
 } // namespace
 
@@ -85,4 +107,6 @@ EMSCRIPTEN_BINDINGS(u1slicer) {
     emscripten::function("setModelInstances", &setModelInstances);
     emscripten::function("slice", &slice);
     emscripten::function("clearModel", &clearModel);
+    emscripten::function("heapBytes", &heapBytes);
+    emscripten::function("previewMesh", &previewMesh);
 }

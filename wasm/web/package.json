@@ -1,0 +1,16 @@
+{
+  "name": "u1-slicer-wasm-web",
+  "private": true,
+  "description": "Browser front end for the U1 slicer WebAssembly build (see wasm/README.md)",
+  "scripts": {
+    "serve": "node serve.mjs",
+    "package": "node package.mjs",
+    "smoke": "node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.1"
+  }
+}

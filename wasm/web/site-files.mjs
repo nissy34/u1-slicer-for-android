@@ -1,0 +1,42 @@
+// The published site, as { published path: source file }. Shared by the dev
+// server (serve.mjs) and the deploy packager (package.mjs) so local testing
+// serves exactly what Cloudflare will.
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const web = dirname(fileURLToPath(import.meta.url));
+const repo = join(web, '../..');
+const engine = process.env.U1SLICER_ENGINE_DIR ?? join(web, '../build/engine');
+const three = join(web, 'node_modules/three');
+
+export const SITE_FILES = {
+  'index.html': join(web, 'index.html'),
+  'app.mjs': join(web, 'app.mjs'),
+  'app-defaults.mjs': join(web, 'app-defaults.mjs'),
+  'preview3d.mjs': join(web, 'preview3d.mjs'),
+  'printer.mjs': join(web, 'printer.mjs'),
+  'gcode-preview.js': join(web, 'gcode-preview.js'),
+  'slicer-worker.js': join(web, 'slicer-worker.js'),
+  'u1slicer.js': join(engine, 'u1slicer.js'),
+  'u1slicer.wasm': join(engine, 'u1slicer.wasm'),
+  // B106 machine start/end G-code, single source of truth shared with the app.
+  'profiles/printer/snapmaker_u1.json': join(repo, 'app/src/main/assets/orca_profiles/printer/snapmaker_u1.json'),
+  'vendor/three/three.module.js': join(three, 'build/three.module.js'),
+  'vendor/three/three.core.js': join(three, 'build/three.core.js'),
+  'vendor/three/addons/controls/OrbitControls.js': join(three, 'examples/jsm/controls/OrbitControls.js'),
+  'vendor/three/LICENSE': join(three, 'LICENSE'),
+};
+
+// Every response needs COOP/COEP: the engine's pthreads use SharedArrayBuffer,
+// which browsers only enable on cross-origin-isolated pages.
+export const HEADERS = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
+
+export const CONTENT_TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8', '.wasm': 'application/wasm',
+  '.json': 'application/json', '.css': 'text/css', '': 'text/plain; charset=utf-8',
+};
