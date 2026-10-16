@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
+    "fflate": "0.8.2",
     "three": "0.186.1"
   },
   "devDependencies": {

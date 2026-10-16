@@ -1019,6 +1019,11 @@ Java_com_u1_slicer_NativeLibrary_nativeGetPreviewModifierBlockStart(
     return static_cast<jint>(g_preview_modifier_block_start);
 }
 
+#else // !SAPIL_HAS_JNI
+// Standalone hosts (the wasm web slicer): the same preview metadata the JNI accessors
+// above hand to Kotlin, as plain C++. Compiled out of the Android .so.
+std::vector<int> previewVolumeTriangleCounts() { return g_preview_volume_triangle_counts; }
+int previewModifierBlockStart() { return g_preview_modifier_block_start; }
 #endif // SAPIL_HAS_JNI
 
 // Accessor for sapil_print.cpp to get the app files directory
