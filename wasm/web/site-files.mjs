@@ -1,6 +1,7 @@
 // The published site, as { published path: source file }. Shared by the dev
 // server (serve.mjs) and the deploy packager (package.mjs) so local testing
 // serves exactly what Cloudflare will.
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +9,8 @@ const web = dirname(fileURLToPath(import.meta.url));
 const repo = join(web, '../..');
 const engine = process.env.U1SLICER_ENGINE_DIR ?? join(web, '../build/engine');
 const three = join(web, 'node_modules/three');
+// Optional STEP-capable engine (wasm/CMakeLists.txt -DU1SLICER_WITH_STEP=ON).
+const engineStep = process.env.U1SLICER_ENGINE_STEP_DIR ?? join(web, '../build/engine-step');
 
 export const SITE_FILES = {
   'index.html': join(web, 'index.html'),
@@ -20,6 +23,10 @@ export const SITE_FILES = {
   'slicer-worker.js': join(web, 'slicer-worker.js'),
   'u1slicer.js': join(engine, 'u1slicer.js'),
   'u1slicer.wasm': join(engine, 'u1slicer.wasm'),
+  ...(existsSync(join(engineStep, 'u1slicer.wasm')) ? {
+    'u1slicer-step.js': join(engineStep, 'u1slicer.js'),
+    'u1slicer-step.wasm': join(engineStep, 'u1slicer.wasm'),
+  } : {}),
   // B106 machine start/end G-code, single source of truth shared with the app.
   'profiles/printer/snapmaker_u1.json': join(repo, 'app/src/main/assets/orca_profiles/printer/snapmaker_u1.json'),
   'vendor/three/three.module.js': join(three, 'build/three.module.js'),

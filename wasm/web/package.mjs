@@ -35,10 +35,14 @@ ${headerLines}
 
 /u1slicer.wasm
   Content-Type: application/wasm
+
+/u1slicer-step.wasm
+  Content-Type: application/wasm
 `);
 
 const zip = join(out, '../site.zip');
 rmSync(zip, { force: true });
 execFileSync('zip', ['-qr9', zip, '.'], { cwd: out });
+console.log(`STEP engine: ${'u1slicer-step.wasm' in SITE_FILES ? 'included' : 'not built (STL/3MF/OBJ only)'}`);
 console.log(`site: ${out} (${(total / 2 ** 20).toFixed(1)} MB, ${Object.keys(SITE_FILES).length + 1} files)`);
 console.log(`zip:  ${zip} (${(statSync(zip).size / 2 ** 20).toFixed(1)} MB)`);

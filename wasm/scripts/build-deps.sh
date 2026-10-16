@@ -155,6 +155,20 @@ dep_occt() {
         # ("br_table: label arity inconsistent"). -fwasm-exceptions already
         # enables C++ exceptions.
         sed -i 's/ -fexceptions -fPIC")/ -fPIC")/' "$S/adm/cmake/occt_defs_flags.cmake"
+        # Emscripten 6's clang emits invalid wasm ("br_table: label arity
+        # inconsistent", at every -O level) for exactly two OCCT functions under
+        # -fwasm-exceptions: ShapeUpgrade_ShapeDivide::Perform and
+        # ShapeCustom_BSplineRestriction::ConvertSurface (found by validating all
+        # 5063 objects one by one). Compile just those two files with
+        # -fignore-exceptions: their own catch handlers become no-ops, so an OCCT
+        # failure inside them propagates to the caller instead of being absorbed.
+        cat >> "$S/src/TKShHealing/CMakeLists.txt" <<'CMK'
+# u1-wasm: see wasm/scripts/build-deps.sh dep_occt
+set_source_files_properties(
+  "${CMAKE_SOURCE_DIR}/src/ShapeUpgrade/ShapeUpgrade_ShapeDivide.cxx"
+  "${CMAKE_SOURCE_DIR}/src/ShapeCustom/ShapeCustom_BSplineRestriction.cxx"
+  TARGET_DIRECTORY TKShHealing PROPERTIES COMPILE_OPTIONS "-fignore-exceptions")
+CMK
         touch "$S/.u1-patched"
     fi
     emcmake_build "$S" "$S/build-wasm" \

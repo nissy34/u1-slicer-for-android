@@ -144,14 +144,34 @@ if (!crossOriginIsolated) {
   setStatus('modelStatus', 'This page must be served cross-origin isolated (COOP/COEP headers) — the engine ' +
     'uses SharedArrayBuffer threads. Use wasm/web/serve.mjs or the Cloudflare _headers file.', 'error');
 }
-const worker = new Worker('slicer-worker.js');
 let engineReady = false, modelLoaded = false, gcodeBlob = null, gcodeName = 'model.gcode';
+let worker = null, workerEngine = null;
+const isStep = (name) => /\.(step|stp)$/i.test(name);
 
-worker.onmessage = ({ data }) => {
+// Two engine builds: the default one, and a larger one (~7 MB gzipped) with
+// STEP import, only fetched when a STEP file is opened.
+function startWorker(engine) {
+  worker?.terminate();
+  engineReady = false;
+  modelLoaded = false;
+  workerEngine = engine;
+  worker = new Worker(engine === 'step' ? 'slicer-worker.js?engine=step' : 'slicer-worker.js');
+  worker.onmessage = onWorkerMessage;
+}
+
+const stepAvailable = fetch('u1slicer-step.wasm', { method: 'HEAD' }).then((r) => r.ok).catch(() => false);
+stepAvailable.then((ok) => {
+  if (ok) {
+    $('file').accept += ',.step,.stp';
+    $('file').parentElement.firstChild.textContent = 'STL, 3MF, OBJ or STEP';
+  }
+});
+
+function onWorkerMessage({ data }) {
   switch (data.type) {
     case 'ready':
       engineReady = true;
-      setStatus('modelStatus', `Engine ready · ${data.core}`);
+      setStatus('modelStatus', `Engine ready · ${data.core}${data.engine === 'u1slicer-step' ? ' · STEP import' : ''}`);
       if ($('file').files.length) loadModel();
       break;
     case 'log':
@@ -199,11 +219,22 @@ worker.onmessage = ({ data }) => {
       break;
     }
   }
-};
+}
+startWorker('default');
 
 async function loadModel() {
   const f = $('file').files[0];
-  if (!f || !engineReady) return;
+  if (!f) return;
+  if (isStep(f.name) && workerEngine !== 'step') {
+    if (!(await stepAvailable)) {
+      setStatus('modelStatus', 'STEP import is not included in this build of the site.', 'error');
+      return;
+    }
+    setStatus('modelStatus', 'Loading the STEP-capable engine (about 7 MB)…');
+    startWorker('step'); // its 'ready' message calls loadModel() again
+    return;
+  }
+  if (!engineReady) return;
   modelLoaded = false;
   $('slice').disabled = true;
   $('tabGcode').disabled = true;

@@ -6,7 +6,9 @@ entirely in the browser tab: STL / 3MF / OBJ (STEP optional), U1 defaults and
 start/end G-code, per-colour extruder mapping, a 3D model and G-code preview, G-code
 download, and **Upload Only** to the printer over Moonraker.
 
-- wasm module: 8.8 MB (2.8 MB gzipped); whole site 10.7 MB (3.2 MB zipped)
+- wasm module: 8.8 MB (2.8 MB gzipped). The optional STEP-capable module is 20.6 MB
+  (6.9 MB gzipped) and is only downloaded when you open a `.step`/`.stp` file. The whole
+  site with both is 30.4 MB (9.8 MB zipped).
 - about 1.3–1.6× slower than a native build of the same engine
 - G-code matches a native 64-bit build of the same sources structurally ([Parity](#parity))
 
@@ -36,7 +38,8 @@ node wasm/web/serve.mjs 8080 --host 0.0.0.0   # reachable from phones/tablets on
 
 ## Using the page
 
-1. **Model.** Choose an STL, 3MF or OBJ (STEP in the STEP build). For multi-plate 3MFs,
+1. **Model.** Choose an STL, 3MF, OBJ or STEP. Picking a STEP file switches to the
+   STEP-capable engine (one extra ~7 MB download). For multi-plate 3MFs,
    set the plate number (0 = all plates).
 2. **Colours → extruders.**
    - Single-colour models get an E1–E4 picker.
@@ -96,12 +99,14 @@ cd wasm/web && npm ci && npm test && node package.mjs   # -> wasm/build/site(.zi
 node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl /tmp/shot.png
 ```
 
-- **STEP build:**
+- **STEP engine** (OCCT 7.6, the version Orca pins):
   ```bash
   wasm/scripts/build-deps.sh occt
-  emcmake cmake -S wasm -B wasm/build/engine-step -DU1SLICER_WITH_STEP=ON ...
+  emcmake cmake -S wasm -B wasm/build/engine-step -G Ninja -DCMAKE_BUILD_TYPE=Release -DU1SLICER_WITH_STEP=ON
+  cmake --build wasm/build/engine-step
   ```
-  Then `U1SLICER_ENGINE_DIR=wasm/build/engine-step node wasm/web/package.mjs`.
+  `package.mjs` then ships it as `u1slicer-step.{js,wasm}` alongside the default engine.
+  CI builds both.
 - **Debug build:** `-DU1SLICER_WASM_DEBUG=ON` turns on assertions, symbolised stacks,
   `SAFE_HEAP` and stack checks.
 - **Native reference:** install the Ubuntu packages `libboost-all-dev libtbb-dev
@@ -218,7 +223,23 @@ The first two affect the **Android build too**:
    - Boost built via b2's `clang` toolset
    - git clones instead of Emscripten ports (the sandbox blocks GitHub archive downloads)
    - Emscripten 6 dropped `mainScriptUrlOrBlob`, so the worker script is pthread-aware
-9. **Native reference CLI only:** `~Model` logging after Boost.Log's TLS teardown aborted
+9. **STEP import needed four more fixes** (STEP build only):
+   - Orca's `Model::read_from_file` rejects STEP, which goes through
+     `Model::read_from_step`; `loadModel` now routes `.step`/`.stp` there under
+     `SAPIL_WITH_STEP`. This means STEP could never have worked through `loadModel`, on
+     Android either.
+   - OCCT forces Emscripten's JS exception model (`-fexceptions`) on top of
+     `-fwasm-exceptions`, so the build strips it.
+   - Emscripten 6's clang emits invalid wasm (`br_table: label arity inconsistent`) for
+     exactly two of OCCT's 5,063 objects (`ShapeUpgrade_ShapeDivide::Perform`,
+     `ShapeCustom_BSplineRestriction::ConvertSurface`), at every optimisation level. Found
+     by validating every object on its own. Those two files are compiled with
+     `-fignore-exceptions`, so their own `catch` handlers don't run and an OCCT failure
+     inside them propagates instead.
+   - OCCT's parallel mesher deadlocks in a browser (a blocked thread can't start the Web
+     Worker for a new pthread). `patches/0002-…` meshes serially; the triangles are the
+     same.
+10. **Native reference CLI only:** `~Model` logging after Boost.Log's TLS teardown aborted
    at exit, so the CLI now `quick_exit`s.
 
 Harmless log noise:

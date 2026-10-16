@@ -56,7 +56,7 @@ jobs:
         # Configure-only (no NDK): the shared native CMakeLists must generate the
         # identical Android build as the default branch.
         run: |
-          sudo apt-get install -y -qq ninja-build zip
+          sudo apt-get install -y -qq ninja-build zip ccache
           git fetch -q --depth 1 origin "${{ github.event.repository.default_branch }}"
           wasm/scripts/check-android-cmake.sh FETCH_HEAD
 
@@ -73,11 +73,12 @@ jobs:
           path: wasm/build/deps
           key: wasm-deps-${{ env.EMSDK_VERSION }}-${{ hashFiles('wasm/scripts/build-deps.sh') }}
 
-      - name: Build dependencies (cache miss only, ~40 min)
+      - name: Build dependencies (cache miss only)
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           wasm/scripts/build-deps.sh
+          wasm/scripts/build-deps.sh occt   # STEP import (optional engine build)
 
       # Saved immediately, so a later failing step doesn't throw the build away.
       - name: Save WASM dependencies
@@ -87,18 +88,45 @@ jobs:
           path: wasm/build/deps
           key: ${{ steps.deps-cache.outputs.cache-primary-key }}
 
-      - name: Build engine
+      # ccache via Emscripten's compiler wrapper: two engine builds share most
+      # objects with the previous run, so later runs recompile only what changed.
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: wasm-ccache-${{ env.EMSDK_VERSION }}-${{ github.sha }}
+          restore-keys: wasm-ccache-${{ env.EMSDK_VERSION }}-
+
+      - name: Build engines (default + STEP)
+        env:
+          EM_COMPILER_WRAPPER: ccache
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          CCACHE_MAXSIZE: 3G
+          CCACHE_BASEDIR: ${{ github.workspace }}
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           emcmake cmake -S wasm -B wasm/build/engine -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build wasm/build/engine
-          ls -la wasm/build/engine/u1slicer.*
+          emcmake cmake -S wasm -B wasm/build/engine-step -G Ninja -DCMAKE_BUILD_TYPE=Release -DU1SLICER_WITH_STEP=ON
+          cmake --build wasm/build/engine-step
+          ls -la wasm/build/engine/u1slicer.* wasm/build/engine-step/u1slicer.*
+          ccache -s | head -8
+
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: wasm-ccache-${{ env.EMSDK_VERSION }}-${{ github.sha }}
 
       - name: Engine smoke test (Node)
         run: |
           node wasm/node/slice.mjs app/src/androidTest/assets/tetrahedron.stl /tmp/tetra.gcode --app-defaults
           grep -q '^PRINT_START' /tmp/tetra.gcode
           grep -q '^EXCLUDE_OBJECT_DEFINE' /tmp/tetra.gcode
+          U1SLICER_WASM_JS=$PWD/wasm/build/engine-step/u1slicer.js \
+            node wasm/node/slice.mjs wasm/test-data/screw.step /tmp/screw.gcode --app-defaults
+          grep -q '^PRINT_START' /tmp/screw.gcode
 
       - name: Package site + web unit tests
         working-directory: wasm/web
@@ -112,6 +140,7 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl ../build/smoke.png
+          node smoke-test.mjs ../test-data/screw.step ../build/smoke-step.png
 
       - uses: actions/upload-artifact@v4
         with:
@@ -119,6 +148,7 @@ jobs:
           path: |
             wasm/build/site.zip
             wasm/build/smoke.png
+            wasm/build/smoke-step.png
 
       - name: Deploy to Cloudflare Pages
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''

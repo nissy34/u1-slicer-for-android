@@ -12,7 +12,11 @@
 //   <- { type: 'log', line }
 //   <- { type: 'done', result, gcode: ArrayBuffer, preview, heapMB, ms }
 //   <- { type: 'error', message }
-importScripts('u1slicer.js');
+// ?engine=step selects the larger engine build with STEP import (OCCT). The
+// query string is part of self.location, so engine pthreads (which re-run
+// this script) pick the same engine.
+const ENGINE = new URL(self.location.href).searchParams.get('engine') === 'step' ? 'u1slicer-step' : 'u1slicer';
+importScripts(`${ENGINE}.js`);
 
 // Emscripten starts each engine pthread (TBB worker) as a new Worker running
 // *this* script (the current script URL), named 'em-pthread'. Those only need
@@ -28,10 +32,11 @@ if (self.name !== 'em-pthread') {
     // Engine logging (SAPIL_LOG*, Boost.Log) goes to stderr.
     print: log,
     printErr: log,
-    locateFile: (path) => new URL(path, self.location.href).href,
+    // Both builds look for "u1slicer.wasm"; point the STEP build at its own.
+    locateFile: (path) => new URL(path.replace(/^u1slicer\.wasm$/, `${ENGINE}.wasm`), self.location.href).href,
   }).then((engine) => {
     engine.FS.mkdirTree('/work');
-    postMessage({ type: 'ready', core: engine.coreVersion() });
+    postMessage({ type: 'ready', core: engine.coreVersion(), engine: ENGINE });
     return engine;
   });
 
