@@ -190,6 +190,48 @@ std::string plateDataJson(int plateIndex) {
     return out.str();
 }
 
+// The app's nativeGetAllVolumeExtruders (sapil_bambu_volume_map.cpp): per-object,
+// per-volume extruder + paint flags, the input of NativePlateState.parseVolumeMapJson.
+std::string allVolumeExtrudersJson() {
+    if (sapil::g_model.objects.empty()) return "";
+    std::ostringstream out;
+    out << "[";
+    for (size_t i = 0; i < sapil::g_model.objects.size(); ++i) {
+        if (i) out << ",";
+        const auto* mo = sapil::g_model.objects[i];
+        if (!mo) { out << "null"; continue; }
+        const int obj_ext = mo->config.has("extruder") ? mo->config.opt_int("extruder") : 0;
+        out << "{\"objectIndex\":" << i << ",\"objectExtruder\":" << obj_ext << ",\"volumes\":[";
+        for (size_t j = 0; j < mo->volumes.size(); ++j) {
+            if (j) out << ",";
+            const auto* mv = mo->volumes[j];
+            if (!mv) { out << "null"; continue; }
+            const int vol_ext = mv->config.has("extruder") ? mv->config.opt_int("extruder") : -1;
+            out << "{\"volumeIndex\":" << j << ",\"extruder\":" << vol_ext
+                << ",\"isMmPainted\":" << (mv->is_mm_painted() ? "true" : "false")
+                << ",\"isSeamPainted\":" << (mv->is_seam_painted() ? "true" : "false") << "}";
+        }
+        out << "]}";
+    }
+    out << "]";
+    return out.str();
+}
+
+// The app's nativeGetPaintStateCounts (sapil_bambu_volumes.cpp): flat
+// [state0, count0, state1, count1, ...] for kind 0 (colour) / 1 (supports), or "" on bad input.
+std::string paintStateCountsJson(int objectIndex, int volumeIndex, int kind) {
+    if (objectIndex < 0 || volumeIndex < 0 || (kind != 0 && kind != 1)) return "";
+    const auto& objs = sapil::g_model.objects;
+    if (static_cast<size_t>(objectIndex) >= objs.size() || objs[objectIndex] == nullptr) return "";
+    const auto* mo = objs[objectIndex];
+    if (static_cast<size_t>(volumeIndex) >= mo->volumes.size() || mo->volumes[volumeIndex] == nullptr) return "";
+    const auto* mv = mo->volumes[volumeIndex];
+    const auto counts = sapil::count_paint_states(*mv, kind == 0 ? mv->mmu_segmentation_facets : mv->supported_facets);
+    json packed = json::array();
+    for (const auto& kv : counts) { packed.push_back(kv.first); packed.push_back(kv.second); }
+    return packed.dump();
+}
+
 std::string instanceOffsetsJson() { return json(engine().getInstanceOffsets()).dump(); }
 std::string instanceWorldZMinsJson() { return json(engine().getInstanceWorldZMins()).dump(); }
 
@@ -260,4 +302,6 @@ EMSCRIPTEN_BINDINGS(u1slicer) {
     emscripten::function("instanceWorldZMinsJson", &instanceWorldZMinsJson);
     emscripten::function("plateCount", &plateCount);
     emscripten::function("plateDataJson", &plateDataJson);
+    emscripten::function("allVolumeExtrudersJson", &allVolumeExtrudersJson);
+    emscripten::function("paintStateCountsJson", &paintStateCountsJson);
 }

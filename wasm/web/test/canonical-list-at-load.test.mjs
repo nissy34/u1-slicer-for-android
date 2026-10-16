@@ -62,15 +62,14 @@ test('collectPaintSpecs scans either attribute in file order and skips blanks', 
 });
 
 test('buildProfileOverrides (pure) uses canonical types/temps and colour overrides', () => {
-  const canonical = { ...stlCanonicalList('#112233', 'PLA') };
   const presets = defaultExtruderPresets();
   const r = buildProfileOverrides({
     cfg: sliceConfig(), overrides: slicingOverrides(), slotCount: 1, usedSlots: [0], canonical: stlCanonicalList('#112233', 'PLA'),
     presets, filamentOverrides: new Map([[0, { color: '#ABCDEF', materialType: 'PETG' }]]), colorMapping: [0],
   });
-  assert.ok(canonical);
   assert.deepEqual(r.filament_type, ['PETG']);
-  assert.deepEqual(r.nozzle_temperature, ['235']);
+  // As in Kotlin (B99 padding): canonical temps are padded to all 4 preset slots.
+  assert.deepEqual(r.nozzle_temperature, ['235', '220', '220', '220']);
   assert.deepEqual(r.filament_colour, ['#ABCDEF']);
 });
 
