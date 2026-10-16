@@ -776,7 +776,7 @@ async function openPrintConfig(src) {
           <select data-card="${k}" aria-label="Tool head for filament ${k + 1}">${slotOpt(heads[k])}</select><span class="warn" id="pcWarn${k}"></span></div>`).join('') || '<p class="hint">No tool changes found in this G-code.</p>'}</div>
         <p class="hint" id="pcShared"></p></div>`}
       <div class="sec"><h4>Print Preferences</h4>
-        ${toggle('pfFlow', 'Extrusion Flow Calibration', 'SM_PRINT_FLOW_CALIBRATE in the start G-code runs only when enabled', prefs.flowCalibrate)}
+        ${toggle('pfFlow', 'Extrusion Flow Calibration', 'Per-extruder flow check at start (SM_PRINT_FLOW_CALIBRATE)', prefs.flowCalibrate)}
         ${toggle('pfLevel', 'Auto Leveling', 'Bed mesh before printing (BED_MESH_CALIBRATE)', prefs.bedLevel)}
         ${toggle('pfLapse', 'Time-lapse Camera', 'Records frames at each layer change', prefs.timeLapse)}
         <p class="hint">Sent as <code id="pcPrefG"></code> right before the print starts — the same command the Snapmaker app sends.${S.prefs ? '' : ' (The printer did not report its current preferences.)'}</p></div>

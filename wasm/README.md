@@ -56,8 +56,11 @@ node wasm/web/serve.mjs 8080 --host 0.0.0.0   # reachable from phones/tablets on
 4. **Slice.** Shows stats and a 3D G-code preview, coloured by feature or by extruder,
    with a layer slider.
 5. **Download G-code**, or **Upload only** to the printer: Moonraker address plus an
-   optional API key (`X-Api-Key`). Upload **never starts a print**: no `print=true`,
-   and there is no start-print call anywhere.
+   optional API key (`X-Api-Key`). Upload **never starts a print**: no `print=true` and
+   no start call. Starting a print only happens from the Printer tab, behind a confirm
+   dialog.
+
+6. **Print…** opens the Printer tab's print screen for the sliced G-code (see below).
 
 Printer upload from a browser has two constraints, both explained on the page when they
 bite:
@@ -66,6 +69,134 @@ bite:
   LAN server above, host the site on the printer, or put TLS in front of Moonraker.
 - **CORS.** Moonraker must allow the page's origin, e.g.
   `[authorization] cors_domains: http://localhost:* https://*.pages.dev`.
+
+## Printer tab
+
+A second tab (**Printer**, or `…/#printer`) mirrors the Android app's Printer screen, talking
+to Moonraker directly from the browser. It has the same mixed-content and CORS constraints
+as upload; the websocket has them too (`ws://` from an `https://` page is blocked, and
+Moonraker checks the origin against `cors_domains`).
+
+- **Connection.** Address (bare IP gets `http://` and `:7125`, like the app's `normalizeUrl`)
+  and an optional API key, both remembered in this browser only. With a key, every HTTP
+  request carries `X-Api-Key`; the websocket, which can't carry headers, uses a oneshot
+  token from `/access/oneshot_token`. Camera snapshots get the key only when they're served
+  by the printer's own host.
+- **Live status.** Moonraker's websocket (`printer.objects.subscribe` on `print_stats`,
+  `virtual_sdcard`, heaters, `extruder`…`extruder3`, `led cavity_led`, `print_task_config`,
+  `display_status`, then `notify_status_update`). If the socket can't open or drops, the tab
+  polls `/printer/objects/query` every 2 s (0.5 s for 30 s after a start) and keeps trying to
+  reconnect. Shows state, progress (`virtual_sdcard.progress` first, B33), layer
+  (`print_stats.info`), elapsed and remaining time (the file's slicer estimate scaled by
+  progress), filament used, the four nozzles and the bed. Offline needs three failed polls
+  (B39). State changes raise toasts, plus browser notifications if you allow them while the
+  tab is hidden.
+- **Camera.** The app's discovery: the first webcam's `snapshot_url` from
+  `/server/webcams/list` (port stripped, then kept), then `/server/files/camera/monitor.jpg`,
+  refreshed every 500 ms, with `camera.start_monitor` every 2 s as the app's keepalive.
+  Optional MJPEG stream (`stream_url`). Because the page is cross-origin isolated (COEP, for
+  the engine's threads), frames are fetched with CORS: the webcam server must send
+  `Access-Control-Allow-Origin`, otherwise use "Open camera in a new tab".
+- **Filaments.** Four slots (material, colour, name, nozzle/bed temperature), kept per
+  browser. **Sync from printer** reads `print_task_config` (AFC lanes as a fallback), runs
+  each loaded slot through the app's library matcher (same brand and material, ΔE76 ≤ 10),
+  and shows a preview before applying colours and/or types. **Edit** a slot by hand or pick
+  from the bundled OpenPrintTag library (`filament_library.json`, the app's asset: search,
+  material chips, favourites, recents, import preview with midpoint temperatures). Edits can
+  optionally be written back to the printer with `SET_PRINT_FILAMENT_CONFIG`.
+- **Print screen** (for the slicer's result, a local `.gcode`, or a file already on the
+  printer):
+  - **Select a Plate to Print**: thumbnail, estimated time, total grams, nozzle diameter and
+    one chip per filament, e.g. "PLA | 3.6g". These come from the G-code footer
+    (`; filament used [g]`, `filament_type`, `filament_colour`).
+  - **Confirm Printer**: hostname and an online dot.
+  - **Configure Filaments**: one card per tool the G-code prints with, each with a tool-head
+    choice. This is the app's Map & Print: the G-code is rewritten with `gcode-tool-remap.js`
+    (T*n*, `M104/M109 T`, `SM_* EXTRUDER=/INDEX=`) before upload. The tab warns when a head
+    holds a different material than the G-code was sliced for (B118), and when two
+    filaments share a head.
+  - **Print Preferences**: Extrusion Flow Calibration, Auto Leveling, Time-lapse Camera.
+  - **Start Print** (after a confirm dialog) or **Upload only**.
+
+### Print preferences: how the U1 takes them
+
+The Android app doesn't send these. The Snapmaker app does, and its print dialog (the
+Flutter bundle in Orca's `resources/web/flutter_web/main.dart.js`, `setPrePrintConfiguration`)
+sends this through `/printer/gcode/script` right before starting:
+
+```
+SET_PRINT_PREFERENCES BED_LEVEL=<0|1> FLOW_CALIBRATE=<0|1> TIME_LAPSE_CAMERA=<0|1>
+```
+
+The firmware's `print_task_config` module keeps the values and reports them back as
+`auto_bed_leveling`, `flow_calibrate` and `time_lapse_camera`, which the tab uses as the
+toggles' defaults. The U1 start G-code always calls `BED_MESH_CALIBRATE`,
+`SM_PRINT_FLOW_CALIBRATE` and `TIMELAPSE_START`. The firmware appears to honour the stored
+preferences inside those macros: the paxx12 extended firmware's "force bed leveling" and
+"force timelapse" overlays work by wrapping exactly these macros with
+`SET_PRINT_PREFERENCES … FORCE=1`. This is inferred from that overlay, not from firmware
+source, which isn't published. Stock firmware rejects the command while a print is running
+or paused. The Snapmaker app also sends `SET_PRINT_EXTRUDER_MAP` and
+`SET_PRINT_USED_EXTRUDERS` so the firmware remaps tools itself. The tab does what the app's
+Map & Print does instead: it rewrites the G-code and starts it verbatim through the API.
+
+### What each control sends
+
+| Control | Request(s) | Confirm |
+|---|---|---|
+| Connect | `GET /server/info`, `/printer/info`, `/server/webcams/list`, `/server/files/list`, websocket subscribe | — (read-only) |
+| Camera | `GET` snapshot URL (+`_cb`), websocket `camera.start_monitor` every 2 s | — |
+| Light | `POST /printer/gcode/script` `SET_LED LED=cavity_led WHITE=1.0\|0 RED=0 GREEN=0 BLUE=0` | — (light only) |
+| Sync from printer | `GET /printer/objects/query?print_task_config&filament_detect` (AFC: `/printer/objects/list` + query) | preview before applying (local only) |
+| Slot edit, "also write to printer" | `SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=i FILAMENT_TYPE='…' FILAMENT_SUBTYPE='…' FILAMENT_COLOR_RGBA='RRGGBBAA' SAVE=1 VENDOR='…'` | opt-in checkbox |
+| Upload only | `POST /server/files/upload` (`root=gcodes`, no `print`) | — (never starts) |
+| Start Print | upload (remapped G-code, `<model>_<millis>.gcode`) → `SET_PRINT_PREFERENCES …` → `POST /printer/print/start?filename=` | **yes** |
+| Print… on a printer file | `SET_PRINT_PREFERENCES …` → `POST /printer/print/start?filename=` | **yes** |
+| Pause / Resume / Stop print | `POST /printer/print/pause` / `resume` / `cancel` | **yes** |
+| Cool down | `TURN_OFF_HEATERS` | **yes** |
+
+### Safety model
+
+- Opening the tab or connecting sends only reads, plus the camera keepalive.
+- Anything that heats, moves, starts, pauses, resumes or cancels needs an explicit confirm
+  dialog. Cancelling it sends nothing (the e2e test checks this).
+- Upload only never sends `print=true` or a start call.
+- If setting the preferences fails, for example because the printer is busy, the print is
+  not started.
+- Development and CI never touch a real printer. `test/mock-moonraker.mjs` is a fake
+  Moonraker and U1 (CORS per `cors_domains`, API key and oneshot tokens, request log,
+  simulated print). Run it by hand with `node wasm/web/test/mock-moonraker.mjs 7125
+  [--api-key K] [--cors ORIGIN] [--no-ws]`.
+
+### Tests
+
+- `npm test` runs:
+  - `test/printer-moonraker.test.mjs`: MoonrakerClientTest incl. API key, PrinterRepository
+    notification/upload-name tests, PrintProgressNotifierTest, PrinterStatusBadgeTest
+  - `test/printer-filament-library.test.mjs`: FilamentLibrary/Matcher/Recents/Import, the
+    asset contract, SyncPreviewBuilderTest
+  - `test/printer-gcode-summary.test.mjs`: footer parsing, cards, remap
+  - `test/printer-mock.test.mjs`: the client against the mock, over HTTP and websocket
+- `node printer-e2e.mjs [shots-dir] [--model m.stl]` drives the page in Chromium against the
+  mock. It covers CORS and API-key errors, live status, camera, LED, sync, library, the slot
+  write-back, the full print screen with remap and preferences, confirm/cancel, pause,
+  resume, stop, upload only, printer-side files, the polling fallback and (with `--model`)
+  slice → Print…. CI runs it with the tetrahedron.
+
+### Known gaps
+
+- **Upload only from the slicer card.** It uploads the slicer's already-remapped G-code. The
+  app instead uploads the canonical body and lets the printer's Filament Setup map it.
+- **Printer-side files** start exactly as uploaded. Re-mapping them would mean downloading
+  and re-uploading the file.
+- **Webcam without CORS.** Frames only show in the page when the webcam sends CORS headers.
+  Otherwise use "Open camera in a new tab".
+- **Tool map.** The tab sends no firmware tool map (`SET_PRINT_EXTRUDER_MAP`), matching the
+  app's API-start path.
+- **Not ported.** Skip objects, per-heater target editing, custom G-code and multiple saved
+  printers (all in the app).
+- **Local G-code files** from another slicer: if the footer has no per-filament data, cards
+  fall back to the tools found in the body.
 
 ## Layout
 
@@ -80,7 +211,9 @@ bite:
 | `stubs/` | `openssl/md5.h` (on Boost's MD5) and `android/api-level.h` |
 | `node/slice.mjs` | Node CLI: `slice.mjs model out.gcode [config.json] [--plate N] [--app-defaults]` |
 | `web/` | The site. `index.html` / `app.mjs` (UI), `slicer-worker.js` (engine in a Worker), `app-defaults.mjs` (the app's plain-model slice config), `gcode-tool-remap.js` (port of `GcodeToolRemapper.kt`), `gcode-preview.js`, `preview3d.mjs` (three.js), `printer.mjs` (Moonraker upload only), `site-files.mjs` (one file map for `serve.mjs` and `package.mjs`) |
-| `web/test/` | `npm test`: the remapper port, held to the Kotlin `GcodeToolRemapperTest` cases |
+| `web/printer/` | Printer tab: `printer-tab.mjs` (UI), `moonraker.mjs` (client + websocket/polling), `filament-library.mjs`, `slots.mjs` (RFID sync), `gcode-summary.mjs` (print screen data), `printer.css` |
+| `web/test/` | `npm test`: the remapper port and the printer modules, held to the Kotlin tests; `mock-moonraker.mjs` (fake printer) |
+| `web/printer-e2e.mjs` | Playwright end to end of the Printer tab against the mock Moonraker |
 | `web/smoke-test.mjs` | Playwright end to end: load → map → slice → preview (+ `SMOKE_URL`, `SMOKE_SLOT`, `SMOKE_GCODE`) |
 | `scripts/compare-gcode.py` | Structural G-code diff: layers, per-feature extrusion, tools, temperatures, objects |
 | `scripts/check-android-cmake.sh` | Proves the shared CMakeLists still generates the identical Android build graph (no NDK needed). Runs in CI |
