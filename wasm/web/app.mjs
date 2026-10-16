@@ -156,15 +156,23 @@ function renderColours() {
         <span class="swatch" style="background:${esc(colours[i] ?? '#888')}"></span>
         <span>Colour ${i + 1} <span class="note">${esc(colours[i] ?? '')}${summary.canonical?.[i]?.materialType ? ` · ${esc(summary.canonical[i].materialType)}` : ''}</span></span>
         <select data-i="${i}">${slotOptions(slot)}</select>
-      </div>`).join('')
+      </div>${materialRow(i)}`).join('')
     : `<div class="colour-row"><span class="swatch" style="background:${esc(slotColour(summary.selectedExtruder))}"></span>
-        <span>Model</span><select id="singleSlot">${slotOptions(summary.selectedExtruder)}</select></div>`;
+        <span>Model</span><select id="singleSlot">${slotOptions(summary.selectedExtruder)}</select></div>${materialRow(0)}`;
   for (const sel of $('colourRows').querySelectorAll('select[data-i]')) {
     sel.onchange = async () => {
       const m = summary.colorMapping.slice();
       m[Number(sel.dataset.i)] = Number(sel.value);
       summary = (await call('mapping', { mapping: m })).summary;
       renderColours(); recolorModel(); pushSettings();
+    };
+  }
+  for (const sel of $('colourRows').querySelectorAll('select[data-mat]')) {
+    sel.onchange = async () => {
+      const i = Number(sel.dataset.mat);
+      const r = await call('edit', { op: 'setFilamentOverride', args: [i, { materialType: sel.value || null }] });
+      summary = r.summary;
+      renderColours();
     };
   }
   if ($('singleSlot')) {
@@ -180,6 +188,20 @@ function renderColours() {
       ? `This file has ${mapping.length} colours but the U1 has ${SLOTS} extruders; colours sharing an extruder print in the same filament.`
       : multi && distinct < mapping.length ? 'Colours sharing an extruder print in the same filament.' : '';
   $('coloursCard').hidden = false;
+}
+
+/**
+ * Per-file-filament material override (the app's Prepare filament override,
+ * Phase 2.6b/B117/B128): a 3MF's declared material wins over the slot preset
+ * unless overridden here.
+ */
+function materialRow(i) {
+  if (!summary.isThreeMf) return '';
+  const declared = summary.canonical?.[i]?.materialType;
+  const current = summary.filamentOverrides?.[i]?.materialType ?? '';
+  return `<div class="colour-row"><span></span><span class="note">Material${declared ? ` (file: ${esc(declared)})` : ''}</span>
+    <select data-mat="${i}" aria-label="Colour ${i + 1} material"><option value="">${declared ? 'From file' : 'From slot'}</option>${MATERIALS.map((m) =>
+      `<option ${m === current ? 'selected' : ''}>${m}</option>`).join('')}</select></div>`;
 }
 
 /** Palette for the model mesh's per-triangle indices (the app's Prepare recolour). */
@@ -461,6 +483,7 @@ function refreshArrange() {
   $('scale').value = Math.round(e.scale.x * 100);
   $('rotX').value = e.rotation.x; $('rotY').value = e.rotation.y; $('rotZ').value = e.rotation.z;
   for (const id of ['copies', 'scale', 'rotX', 'rotY', 'rotZ']) $(id).disabled = e.multiObject;
+  $('autoArrange').disabled = !e.multiObject; // autoArrangeAll needs several objects on the bed
   $('split').disabled = e.multiObject ? !(summary.objects[selected ?? 0]?.splittable) : !summary.objects.some((o) => o.splittable);
   $('towerPanel').hidden = !summary.wipeTowerEnabled;
   $('towerX').value = summary.wipeTower.x.toFixed(1);

@@ -13,7 +13,7 @@ name: Web slicer (WASM) build + Cloudflare Pages
 
 on:
   push:
-    branches: [main, claude/wasm-spike]
+    branches: [main, claude/wasm-spike, claude/wasm-3mf-pipeline]
     paths:
       - 'wasm/**'
       - 'app/src/main/cpp/**'
@@ -135,12 +135,28 @@ jobs:
           npm test
           node package.mjs
 
+      - name: 3MF pipeline smoke test (Node)
+        # The app's pipeline (sanitize -> embed -> slice -> header patches ->
+        # thumbnails -> slot export) on a dual-colour Bambu 3MF, mapped to E3+E4.
+        run: |
+          echo '{"colorMapping":[2,3]}' > /tmp/map.json
+          node wasm/node/pipeline-slice.mjs app/src/androidTest/assets/calib-cube-10-dual-colour-merged.3mf /tmp/cc.gcode /tmp/map.json
+          grep -q '^PRINT_START' /tmp/cc.gcode
+          grep -q '^; thumbnail begin 300x300' /tmp/cc.gcode
+          grep -qx 'T2' /tmp/cc.gcode && grep -qx 'T3' /tmp/cc.gcode
+          ! grep -qx 'T0' /tmp/cc.gcode
+
+      - name: Engine integration tests (fixture harness)
+        working-directory: wasm/web
+        run: node --test --test-concurrency=1 test-engine/fixture-harness.test.mjs
+
       - name: Browser smoke test (Chromium)
         working-directory: wasm/web
         run: |
           npx playwright install --with-deps chromium
           node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl ../build/smoke.png
           node smoke-test.mjs ../test-data/screw.step ../build/smoke-step.png
+          SMOKE_PLATE=3 node smoke-test.mjs "../../app/src/androidTest/assets/Dragon Scale infinity.3mf" ../build/smoke-3mf.png
 
       - uses: actions/upload-artifact@v4
         with:
@@ -149,6 +165,7 @@ jobs:
             wasm/build/site.zip
             wasm/build/smoke.png
             wasm/build/smoke-step.png
+            wasm/build/smoke-3mf.png
 
       - name: Deploy to Cloudflare Pages
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''

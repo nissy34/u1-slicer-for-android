@@ -617,20 +617,24 @@ export class SlicerSession {
 
   /** autoArrangeAll (F92): non-overlapping layout clear of the tower keep-out. */
   autoArrange() {
-    if (!this.multiObject) {
-      this.customObjectPositions = null;
-      this.#placeInEngine();
-      this.#refreshTowerForPlacement();
-      return { overflowCount: 0 };
-    }
-    const boxes = this.objects().flatMap((o) => o.size);
+    // Same guards, keep-out and toasts as SlicerViewModel.autoArrangeAll; `message` is its toast.
+    const boxes = this.objects().flatMap((o) => o.size ?? []);
+    if (boxes.length < 3) return { overflowCount: 0, message: 'Nothing to arrange' };
+    // Only genuinely distinct objects: a single-file multi-object model would explode
+    // into N×N instances through setModelInstances.
+    if (!this.multiObject) return { overflowCount: 0, message: 'Auto-arrange needs multiple objects on the bed' };
+    const cfg = this.config;
+    const slotCount = Math.min(Math.max(this.colorMapping ? new Set(this.colorMapping).size : 1, 1), 4);
+    const towerActive = resolvePrimeTower(this.overrides, slotCount, cfg.wipeTowerEnabled);
+    const towerPos = this.customWipeTowerPos ?? [cfg.wipeTowerX, cfg.wipeTowerY];
     const [w, d] = this.wipeTowerSize();
-    const reserved = this.config.wipeTowerEnabled && this.customWipeTowerPos
-      ? [this.customWipeTowerPos[0], this.customWipeTowerPos[1], w, d] : null;
-    const result = Arrange.autoArrange(boxes, reserved, null, this.config.bedSizeX, this.config.bedSizeY);
-    this.customObjectPositions = result.positions;
-    this.#placeInEngine();
-    return { overflowCount: result.overflowCount };
+    // [minX, minY, maxX, maxY] inflated by the 5 mm margin.
+    const reserved = towerActive ? [towerPos[0] - 5, towerPos[1] - 5, towerPos[0] + w + 5, towerPos[1] + d + 5] : null;
+    const incoming = this.customObjectPositions ?? this.placementPositions();
+    const result = Arrange.autoArrange(boxes, reserved, incoming, cfg.bedSizeX, cfg.bedSizeY);
+    this.setPlacement(result.positions, towerPos);
+    return { overflowCount: result.overflowCount,
+      message: result.overflowCount > 0 ? `${result.overflowCount} object(s) didn't fit on the bed` : null };
   }
 
   setVolumeExtruder(objIdx, volIdx, slot) {
@@ -849,6 +853,7 @@ export class SlicerSession {
       layerToolOnly: this.layerToolOnly,
       canonical: this.canonical ? this.canonical.filaments.map((f) => ({ color: f.color, materialType: f.materialType, source: f.source })) : null,
       colorMapping: this.colorMapping,
+      filamentOverrides: Object.fromEntries(this.filamentOverrides),
       selectedExtruder: this.selectedExtruder,
       activeExtruderColors: this.activeExtruderColors,
       extruderCount: this.config.extruderCount,
