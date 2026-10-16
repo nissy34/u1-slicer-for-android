@@ -76,7 +76,7 @@ if (self.name !== 'em-pthread') {
     load(s, { id, name, bytes }) {
       const t0 = performance.now();
       const summary = s.loadModel(name, new Uint8Array(bytes));
-      scene(id, s, !summary.needsPlateSelection, { ms: performance.now() - t0 });
+      scene(id, s, !summary.needsPlateSelection, { summary, ms: performance.now() - t0 });
     },
     plate(s, { id, plateId }) {
       const t0 = performance.now();
@@ -128,6 +128,7 @@ if (self.name !== 'em-pthread') {
         const session = await sessionPromise;
         await handlers[data.type](session, data);
       } catch (e) {
+        if (e?.stack) log(`${data.type} failed: ${e.stack}`);
         postMessage({ type: 'error', id: data.id, op: data.type, message: String(e?.message ?? e) });
       }
     });

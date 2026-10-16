@@ -92,6 +92,7 @@ startWorker('default');
 
 // The wasm32 heap tops out at 4 GB; whole multi-plate projects can hit it.
 function errorText(e) {
+  console.error(e);
   const m = String(e?.message ?? e);
   return /bad_alloc|out of memory|Cannot enlarge memory/i.test(m)
     ? `${m} — out of memory in the browser engine (4 GB limit). Pick a single 3MF plate or scale the model down.` : m;
