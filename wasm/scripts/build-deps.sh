@@ -163,7 +163,7 @@ dep_occt() {
         -DBUILD_MODULE_DataExchange=ON
     cmake --install "$S/build-wasm" >/dev/null
     local L; L=$(libdir occt)
-    find "$OUT/occt/lib" -maxdepth 2 -name "*.a" -exec cp {} "$L/" \;
+    find "$OUT/occt/lib" -maxdepth 1 -name "*.a" -exec cp {} "$L/" \;
     rm -rf "$OUT/occt/include.real"; mv "$OUT/occt/include" "$OUT/occt/include.real"
     mkdir -p "$OUT/occt/include"
     # Flatten include/opencascade/*.hxx so <STEPCAFControl_Reader.hxx> resolves

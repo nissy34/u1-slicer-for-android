@@ -138,10 +138,12 @@ Heavy runs overlapped other builds, so their times are indicative.
 | Flarewing Dragon / Spiderman | | 102 s / 98 s | 0.5 GB |
 | GhostfacePokemoncard | 482 parts | 380 s | 0.4 GB |
 | negative-volume-articulated | | 45 s | 0.4 GB |
+| H2C shoe, one plate, full size | 212 × 214 × 254 mm, 1,271 layers | 394 s | 2.1 GB |
 | H2C shoe, **all plates, full size** | 608 × 214 × 254 mm | — | **`bad_alloc` at 2.9 GB** |
 
-Single-plate jobs stay well under 1 GB. Only whole multi-plate projects approach the
-ceiling, and the page then suggests picking one plate. `-sMEMORY64` (wasm64) would lift
+Typical single-plate jobs stay under 1 GB; a full-height, full-bed plate like the shoe
+needs about 2 GB. Only whole multi-plate projects approach the ceiling, and the page then
+suggests picking one plate. `-sMEMORY64` (wasm64) would lift
 the limit, at a speed cost and without Safari support.
 
 **Browser:** headless Chromium slices 3DBenchy in 12–13 s through the page. The same
