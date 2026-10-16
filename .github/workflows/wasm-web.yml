@@ -21,9 +21,11 @@ on:
       - '.github/workflows/wasm-web.yml'
   workflow_dispatch:
 
+# Queue rather than cancel: a cancelled first run would never finish (and so
+# never cache) the ~40 min dependency build.
 concurrency:
   group: wasm-web-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -57,9 +59,9 @@ jobs:
           "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
           sudo apt-get install -y -qq ninja-build zip
 
-      - name: Cache WASM dependencies
+      - name: Restore WASM dependencies
         id: deps-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: wasm/build/deps
           key: wasm-deps-${{ env.EMSDK_VERSION }}-${{ hashFiles('wasm/scripts/build-deps.sh') }}
@@ -69,6 +71,14 @@ jobs:
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           wasm/scripts/build-deps.sh
+
+      # Saved immediately, so a later failing step doesn't throw the build away.
+      - name: Save WASM dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: wasm/build/deps
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
 
       - name: Build engine
         run: |
@@ -83,10 +93,11 @@ jobs:
           grep -q '^PRINT_START' /tmp/tetra.gcode
           grep -q '^EXCLUDE_OBJECT_DEFINE' /tmp/tetra.gcode
 
-      - name: Package site
+      - name: Package site + web unit tests
         working-directory: wasm/web
         run: |
           npm ci --no-audit --no-fund
+          npm test
           node package.mjs
 
       - name: Browser smoke test (Chromium)
