@@ -38,10 +38,10 @@ if(EMSCRIPTEN)
     # WebAssembly cannot change the FPU rounding mode, which CGAL's interval
     # arithmetic (the filter behind every Epick predicate) relies on. Without
     # this, NDEBUG builds silently compute unsound intervals — CGAL's own
-    # self-test "-CGAL_IA_MUL(-1.1, 10.1) != CGAL_IA_MUL(1.1, 10.1)" fails —
-    # and VoronoiUtilsCgal's planarity check feeds Arachne a broken diagram
-    # (wild-pointer crash in SkeletalTrapezoidation on 3DBenchy). CGAL's
-    # supported fallback widens each bound by one ulp via nextafter().
+    # self-test "-CGAL_IA_MUL(-1.1, 10.1) != CGAL_IA_MUL(1.1, 10.1)" fails when
+    # assertions are on — so exact-predicate results (VoronoiUtilsCgal,
+    # MeshBoolean, CutSurface) can be wrong. CGAL's supported fallback widens
+    # each bound by one ulp via nextafter().
     add_compile_definitions(CGAL_ALWAYS_ROUND_TO_NEAREST=1)
 else()
     # Host reference build: deps come from the system (Ubuntu: libboost-all-dev
@@ -54,6 +54,34 @@ else()
     # Distro Boost is shared; the engine otherwise assumes static Boost.Log.
     add_compile_definitions(BOOST_LOG_DYN_LINK=1)
 endif()
+
+# Engine source patches (wasm/patches/*.patch, paths relative to the orcaslicer
+# submodule). The submodule itself stays untouched: each patched file is copied
+# into the build tree, patched there, and swapped into libslic3r's source list
+# by the shared CMakeLists (SAPIL_SOURCE_OVERRIDES). Only bugs that the wasm
+# build exposes belong here; upstream them to the Orca fork when possible.
+set(SAPIL_PATCHED_DIR "${CMAKE_BINARY_DIR}/patched-engine")
+set(SAPIL_SOURCE_OVERRIDES "")
+file(GLOB ENGINE_PATCHES "${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch")
+foreach(patch ${ENGINE_PATCHES})
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${patch})
+    file(STRINGS ${patch} touched REGEX "^\\+\\+\\+ b/")
+    foreach(line ${touched})
+        string(REGEX REPLACE "^\\+\\+\\+ b/" "" rel "${line}")
+        list(APPEND SAPIL_SOURCE_OVERRIDES ${rel})
+    endforeach()
+endforeach()
+list(REMOVE_DUPLICATES SAPIL_SOURCE_OVERRIDES)
+foreach(rel ${SAPIL_SOURCE_OVERRIDES})  # fresh originals first, then all patches
+    configure_file("${APP_CPP_DIR}/orcaslicer/${rel}" "${SAPIL_PATCHED_DIR}/${rel}" COPYONLY)
+endforeach()
+foreach(patch ${ENGINE_PATCHES})
+    execute_process(COMMAND patch -p1 --forward --silent -d "${SAPIL_PATCHED_DIR}" -i "${patch}"
+                    RESULT_VARIABLE rc)
+    if(NOT rc EQUAL 0)
+        message(FATAL_ERROR "Engine patch failed to apply: ${patch}")
+    endif()
+endforeach()
 
 # Engine: identical source lists / defines to the Android .so; the shared
 # CMakeLists stops before its JNI target when SAPIL_STANDALONE is set.

@@ -1065,6 +1065,22 @@ if(SLICER_BACKEND STREQUAL "orca")
     )
 endif()
 
+if(SAPIL_STANDALONE)
+    # Patched copies of engine sources (see wasm/CMakeLists.txt). Each copy lives
+    # outside its original directory, so give it that directory for its
+    # file-relative #includes.
+    foreach(rel ${SAPIL_SOURCE_OVERRIDES})
+        list(FIND LIBSLIC3R_CORE_SOURCES "${PRUSA_DIR}/${rel}" idx)
+        if(idx GREATER -1)
+            list(REMOVE_AT LIBSLIC3R_CORE_SOURCES ${idx})
+            list(INSERT LIBSLIC3R_CORE_SOURCES ${idx} "${SAPIL_PATCHED_DIR}/${rel}")
+            get_filename_component(orig_dir "${PRUSA_DIR}/${rel}" DIRECTORY)
+            set_source_files_properties("${SAPIL_PATCHED_DIR}/${rel}" PROPERTIES INCLUDE_DIRECTORIES "${orig_dir}")
+            message(STATUS "libslic3r: patched ${rel}")
+        endif()
+    endforeach()
+endif()
+
 add_library(libslic3r STATIC ${LIBSLIC3R_CORE_SOURCES})
 
 target_compile_definitions(libslic3r PUBLIC
@@ -1127,11 +1143,6 @@ if(SLICER_BACKEND STREQUAL "orca")
             ${LIBSLIC3R_DIR}/Thread.cpp
             ${LIBSLIC3R_DIR}/Model.cpp
             PROPERTIES COMPILE_DEFINITIONS "__ANDROID__=1")
-        # TEMP-DEBUG: Arachne with asserts on
-        if(SAPIL_ARACHNE_ASSERTS)
-            file(GLOB_RECURSE _arachne_srcs ${LIBSLIC3R_DIR}/Arachne/*.cpp ${LIBSLIC3R_DIR}/Geometry/Voronoi*.cpp)
-            set_source_files_properties(${_arachne_srcs} PROPERTIES COMPILE_OPTIONS "-UNDEBUG")
-        endif()
         # Platform.cpp static_asserts on unknown OSes; Emscripten is POSIX enough
         # to take the Linux branch (its /proc/version probe just fails).
         set_source_files_properties(${LIBSLIC3R_DIR}/Platform.cpp

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U1 Slicer (WASM spike)</title>
+<style>
+  :root {
+    --bg: #f6f8fc; --surface: #fff; --text: #1a1c1e; --muted: #5d6370;
+    --accent: #1565c0; --accent-text: #fff; --border: #d9dee7; --error: #b3261e;
+    --layer: #1565c0; --layer-prev: #c5cbd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --surface: #1b1e24; --text: #e3e5ea; --muted: #a0a6b2;
+      --accent: #8ab4f8; --accent-text: #0b1d3a; --border: #313641; --error: #f2b8b5;
+      --layer: #8ab4f8; --layer-prev: #3a404c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 0; }
+  .sub { color: var(--muted); margin: 0; font-size: 13px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 8px; min-width: 0; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; border: 0; border-radius: 20px; padding: 8px 18px; cursor: pointer;
+    background: var(--accent); color: var(--accent-text); }
+  button[disabled] { opacity: .45; cursor: default; }
+  progress { flex: 1; min-width: 120px; height: 8px; accent-color: var(--accent); }
+  #status { font-size: 13px; color: var(--muted); }
+  #status.error { color: var(--error); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 8px; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  canvas { width: 100%; aspect-ratio: 1; background: var(--bg); border-radius: 8px; display: block; }
+  #layerRow input { flex: 1; }
+  details pre { max-height: 240px; overflow: auto; font-size: 11px; white-space: pre-wrap; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>U1 Slicer — WebAssembly spike</h1>
+    <p class="sub">The Android app's Snapmaker Orca engine, compiled to wasm and running in a worker. Nothing leaves this tab.</p>
+  </header>
+
+  <section class="card">
+    <div class="grid">
+      <label>Model (STL / 3MF / OBJ)<input id="file" type="file" accept=".stl,.3mf,.obj"></label>
+      <label>Layer height (mm)<input id="layer_height" type="number" step="0.04" min="0.08" max="0.32" value="0.2"></label>
+      <label>Walls<input id="perimeters" type="number" min="1" max="10" value="2"></label>
+      <label>Infill (%)<input id="fill_density" type="number" min="0" max="100" value="15"></label>
+      <label>Infill pattern
+        <select id="fill_pattern">
+          <option>gyroid</option><option>grid</option><option>rectilinear</option>
+          <option>honeycomb</option><option>cubic</option><option>lightning</option>
+        </select>
+      </label>
+      <label>Nozzle temp (°C)<input id="nozzle_temp" type="number" value="220"></label>
+      <label>Bed temp (°C)<input id="bed_temp" type="number" value="60"></label>
+      <label>Supports
+        <select id="support"><option value="">Off</option><option value="normal">Normal</option><option value="tree">Tree</option></select>
+      </label>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button id="slice" disabled>Loading engine…</button>
+      <progress id="progress" max="100" value="0"></progress>
+      <button id="download" disabled>Download G-code</button>
+    </div>
+    <p id="status">Starting worker…</p>
+  </section>
+
+  <section class="card" id="resultCard" hidden>
+    <div class="stats" id="stats"></div>
+    <div class="row" id="layerRow" style="margin:16px 0 8px">
+      <span>Layer</span><input id="layer" type="range" min="0" value="0"><span id="layerLabel"></span>
+    </div>
+    <canvas id="canvas" width="900" height="900"></canvas>
+  </section>
+
+  <details class="card"><summary>Engine log</summary><pre id="log"></pre></details>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const BED = 270; // Snapmaker U1 bed, mm
+let gcodeBlob = null, layers = [];
+
+if (!crossOriginIsolated) {
+  $('status').textContent = 'This page must be served cross-origin isolated (COOP/COEP) — the engine uses SharedArrayBuffer threads. Use wasm/web/serve.mjs.';
+  $('status').className = 'error';
+}
+
+const worker = new Worker('slicer-worker.js');
+worker.onmessage = ({ data }) => {
+  switch (data.type) {
+    case 'ready':
+      $('slice').disabled = !$('file').files.length;
+      $('slice').textContent = 'Slice';
+      $('status').textContent = `Engine ready: ${data.core}`;
+      break;
+    case 'log':
+      $('log').textContent += data.line + '\n';
+      break;
+    case 'progress':
+      $('progress').value = data.pct;
+      $('status').textContent = data.stage;
+      break;
+    case 'done': onDone(data); break;
+    case 'error':
+      $('status').textContent = data.message; $('status').className = 'error';
+      $('slice').disabled = false;
+      break;
+  }
+};
+
+$('file').onchange = () => { $('slice').disabled = $('slice').textContent !== 'Slice' || !$('file').files.length; };
+
+$('slice').onclick = async () => {
+  const f = $('file').files[0];
+  const num = (id) => Number($(id).value);
+  const config = {
+    layer_height: num('layer_height'), perimeters: num('perimeters'),
+    fill_density: num('fill_density') / 100, fill_pattern: $('fill_pattern').value,
+    nozzle_temp: num('nozzle_temp'), bed_temp: num('bed_temp'),
+    support_enabled: !!$('support').value, support_type: $('support').value || 'normal',
+  };
+  $('slice').disabled = true; $('download').disabled = true;
+  $('status').className = ''; $('status').textContent = 'Slicing…'; $('progress').value = 0;
+  const bytes = await f.arrayBuffer();
+  worker.postMessage({ type: 'slice', name: f.name, bytes, config }, [bytes]);
+};
+
+$('download').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(gcodeBlob);
+  a.download = $('file').files[0].name.replace(/\.[^.]+$/, '') + '.gcode';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+function onDone({ result, model, gcode, ms }) {
+  const text = new TextDecoder().decode(gcode);
+  gcodeBlob = new Blob([text], { type: 'text/plain' });
+  $('slice').disabled = false; $('download').disabled = false; $('progress').value = 100;
+  $('status').textContent = `Sliced in ${(ms / 1000).toFixed(1)} s`;
+  const t = Math.round(result.estimatedTimeSeconds);
+  const stats = [
+    [`${Math.floor(t / 3600)}h ${Math.floor(t / 60) % 60}m`, 'print time'],
+    [`${result.estimatedFilamentGrams.toFixed(1)} g`, 'filament'],
+    [`${(result.estimatedFilamentMm / 1000).toFixed(2)} m`, 'filament length'],
+    [result.totalLayers, 'layers'],
+    [`${model.sizeX.toFixed(1)}×${model.sizeY.toFixed(1)}×${model.sizeZ.toFixed(1)}`, 'size (mm)'],
+    [`${(gcode.byteLength / 2 ** 20).toFixed(1)} MB`, 'G-code'],
+  ];
+  $('stats').innerHTML = stats.map(([v, k]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+  layers = parseLayers(text);
+  $('layer').max = Math.max(0, layers.length - 1);
+  $('layer').value = Math.min(layers.length - 1, Math.round(layers.length / 3));
+  $('resultCard').hidden = false;
+  drawLayer();
+}
+
+// Minimal G-code reader: extrusion segments per layer (absolute XY, relative or absolute E).
+function parseLayers(text) {
+  const out = []; let cur = null, x = 0, y = 0, e = 0, relE = false;
+  for (const raw of text.split('\n')) {
+    if (raw.startsWith(';LAYER_CHANGE')) { cur = []; out.push(cur); continue; }
+    if (raw.startsWith('M83')) relE = true; else if (raw.startsWith('M82')) relE = false;
+    if (!(raw.startsWith('G1 ') || raw.startsWith('G0 ') || raw.startsWith('G2 ') || raw.startsWith('G3 '))) continue;
+    let nx = x, ny = y, ne = null;
+    for (const w of raw.split(';')[0].split(' ')) {
+      const v = parseFloat(w.slice(1));
+      if (w[0] === 'X') nx = v; else if (w[0] === 'Y') ny = v; else if (w[0] === 'E') ne = v;
+    }
+    const extrudes = ne !== null && (relE ? ne > 0 : ne > e);
+    if (ne !== null) e = relE ? e : ne;
+    if (cur && extrudes && (nx !== x || ny !== y)) cur.push(x, y, nx, ny);
+    x = nx; y = ny;
+  }
+  return out.filter((l) => l.length);
+}
+
+function drawLayer() {
+  const i = Number($('layer').value), c = $('canvas'), g = c.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  $('layerLabel').textContent = `${i + 1} / ${layers.length}`;
+  g.clearRect(0, 0, c.width, c.height);
+  // Fit the printed area (with margin) rather than the whole bed.
+  let minX = BED, minY = BED, maxX = 0, maxY = 0;
+  for (const l of layers) for (let k = 0; k < l.length; k += 2) {
+    minX = Math.min(minX, l[k]); maxX = Math.max(maxX, l[k]);
+    minY = Math.min(minY, l[k + 1]); maxY = Math.max(maxY, l[k + 1]);
+  }
+  const span = Math.max(maxX - minX, maxY - minY) * 1.1 || BED;
+  const s = c.width / span, ox = (minX + maxX) / 2, oy = (minY + maxY) / 2;
+  const P = (px, py) => [(px - ox) * s + c.width / 2, c.height / 2 - (py - oy) * s];
+  const stroke = (l, color, w) => {
+    g.strokeStyle = color; g.lineWidth = w; g.beginPath();
+    for (let k = 0; k < l.length; k += 4) {
+      g.moveTo(...P(l[k], l[k + 1])); g.lineTo(...P(l[k + 2], l[k + 3]));
+    }
+    g.stroke();
+  };
+  if (i > 0) stroke(layers[i - 1], css.getPropertyValue('--layer-prev'), Math.max(1, 0.4 * s));
+  stroke(layers[i], css.getPropertyValue('--layer'), Math.max(1, 0.42 * s));
+}
+$('layer').oninput = drawLayer;
+</script>
+</body>
+</html>

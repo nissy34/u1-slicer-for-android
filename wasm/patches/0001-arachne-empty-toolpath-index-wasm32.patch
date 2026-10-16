@@ -1,0 +1,16 @@
+diff --git a/src/libslic3r/Arachne/SkeletalTrapezoidation.cpp b/src/libslic3r/Arachne/SkeletalTrapezoidation.cpp
+index 2d2cf98..9cf871a 100644
+--- a/src/libslic3r/Arachne/SkeletalTrapezoidation.cpp
++++ b/src/libslic3r/Arachne/SkeletalTrapezoidation.cpp
+@@ -1668,7 +1668,10 @@ SkeletalTrapezoidation::Beading SkeletalTrapezoidation::interpolate(const Beadin
+     // TODO: don't use toolpath locations past the middle!
+     // TODO: stretch bead widths and locations of the higher bead count beading to fit in the left over space
+     coord_t next_inset_idx;
+-    for (next_inset_idx = left.toolpath_locations.size() - 1; next_inset_idx >= 0; next_inset_idx--)
++    // wasm32: size() - 1 on an empty vector is SIZE_MAX (32-bit), which an int64
++    // coord_t holds as +4294967295 rather than -1, so the loop indexed far out of
++    // bounds. Convert before subtracting so the empty case is -1 everywhere.
++    for (next_inset_idx = coord_t(left.toolpath_locations.size()) - 1; next_inset_idx >= 0; next_inset_idx--)
+     {
+         if (switching_radius > left.toolpath_locations[next_inset_idx])
+         {
