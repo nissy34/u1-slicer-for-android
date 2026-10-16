@@ -968,6 +968,7 @@ void SlicerEngine::releasePreparePreviewScene(PreparePreviewSceneHandle scene) c
     delete scene;
 }
 
+#if SAPIL_HAS_JNI
 // fix36: accessor for the per-volume triangle-count map captured during the most recent
 // getPreparePreviewMesh build. Returns the counts in mesh-build order (same as the volume
 // iteration in nativeGetAllVolumeExtruders). Kotlin combines this with the volume metadata
@@ -1006,6 +1007,8 @@ Java_com_u1_slicer_NativeLibrary_nativeGetPreviewModifierBlockStart(
         JNIEnv*, jobject) {
     return static_cast<jint>(g_preview_modifier_block_start);
 }
+
+#endif // SAPIL_HAS_JNI
 
 // Accessor for sapil_print.cpp to get the app files directory
 std::string getFilesDir() { return g_files_dir; }
@@ -1290,6 +1293,7 @@ Slic3r::DynamicPrintConfig& getModelConfig() {
     return g_model_config;
 }
 
+#if SAPIL_HAS_JNI
 jobject modelInfoToJava(JNIEnv* env, const ModelInfo& info) {
     jclass cls = env->FindClass("com/u1/slicer/data/ModelInfo");
     if (!cls) {
@@ -1363,5 +1367,7 @@ jobject previewMeshToJava(JNIEnv* env, const PreviewMesh& mesh) {
     env->DeleteLocalRef(cls);
     return obj;
 }
+
+#endif // SAPIL_HAS_JNI
 
 } // namespace sapil

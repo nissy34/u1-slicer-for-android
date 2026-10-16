@@ -21,6 +21,11 @@ message(STATUS "SLICER_BACKEND=${SLICER_BACKEND}")
 # dependency bundle while compiling the worktree's own native sources.
 set(EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern" CACHE PATH "Prebuilt Android dependency root")
 set(ABI_DIR "${ANDROID_ABI}")
+# WebAssembly spike (wasm/CMakeLists.txt): same engine sources, Emscripten
+# toolchain, deps from wasm/scripts/build-deps.sh in the same extern/ layout.
+if(EMSCRIPTEN)
+    set(ABI_DIR "wasm32")
+endif()
 
 if(SLICER_BACKEND STREQUAL "orca")
     set(PRUSA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/orcaslicer")
@@ -103,6 +108,17 @@ else()
     )
 endif()
 
+if(EMSCRIPTEN)
+    # Stub headers that replace optional deps (openssl/md5.h) + real NLopt for
+    # libnest2d. Prepended so they shadow anything in the Android bundle.
+    # libpng/libjpeg are real libraries here (Android uses header stubs).
+    list(PREPEND BUNDLED_INCLUDES ${SAPIL_WASM_STUB_DIR}
+        ${EXTERN_DIR}/nlopt/include ${EXTERN_DIR}/libpng/include ${EXTERN_DIR}/libjpeg/include)
+    foreach(dep nlopt libpng libjpeg)
+        link_directories("${EXTERN_DIR}/${dep}/lib/${ABI_DIR}")
+    endforeach()
+endif()
+
 # =============================================================================
 # HWASan (Hardware Address Sanitizer) — diagnostic build for memory bugs
 # Enable with: cmake -DENABLE_HWASAN=ON
@@ -162,6 +178,9 @@ include_directories("${BOOST_ROOT}/include")
 link_directories("${BOOST_ROOT}/lib/${ABI_DIR}")
 # Note: Boost-for-Android uses custom suffixes for the .a files
 set(BOOST_SUFFIX "-clang-mt-a64-1_84")
+if(EMSCRIPTEN)
+    set(BOOST_SUFFIX "")  # b2 --layout=system
+endif()
 set(BOOST_LIBS
     "boost_log_setup${BOOST_SUFFIX}"
     "boost_log${BOOST_SUFFIX}"
@@ -223,6 +242,12 @@ else()
         TKOffset TKPrim TKHLR TKXCAF TKBinXCAF TKXmlXCAF TKBin TKXml
         TKShHealing TKExpress TKRWMesh TKXMesh TKStd TKBinL TKXmlL
     )
+endif()
+
+if(EMSCRIPTEN)
+    # STEP/SVG import (the only OCCT users) are already excluded; nothing left
+    # in the FFF path needs OCCT, so the wasm build skips the 1 GB dependency.
+    set(OCCT_LIBS "")
 endif()
 
 # --- Clipper2 ---
@@ -1074,10 +1099,25 @@ if(SLICER_BACKEND STREQUAL "orca")
         gmpxx
         gmp
         mpfr
-        Clipper2
+        $<$<NOT:$<BOOL:${EMSCRIPTEN}>>:Clipper2>
+        $<$<BOOL:${EMSCRIPTEN}>:nlopt>
+        $<$<BOOL:${EMSCRIPTEN}>:png>
+        $<$<BOOL:${EMSCRIPTEN}>:jpeg>
         z
         expat
     )
+
+    if(EMSCRIPTEN)
+        # Snapmaker-U1 engine patches in the Orca fork are gated on __ANDROID__
+        # (F71 EXCLUDE_OBJECT_DEFINE for every gcode flavor, serial-shim-safe
+        # TBB thread naming, FaceDetector skip). Define it for exactly those
+        # translation units so wasm G-code matches the Android build.
+        set_source_files_properties(
+            ${LIBSLIC3R_DIR}/GCode.cpp
+            ${LIBSLIC3R_DIR}/Thread.cpp
+            ${LIBSLIC3R_DIR}/Model.cpp
+            PROPERTIES COMPILE_DEFINITIONS "__ANDROID__=1")
+    endif()
 else()
     target_link_libraries(libslic3r PRIVATE
         admesh
@@ -1109,6 +1149,11 @@ else()
         z
         expat
     )
+endif()
+
+if(EMSCRIPTEN)
+    # wasm/CMakeLists.txt builds its own non-JNI entry point on top of libslic3r.
+    return()
 endif()
 
 # =============================================================================
