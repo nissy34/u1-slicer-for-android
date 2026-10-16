@@ -627,3 +627,22 @@ test('mergeThreeMfInfoForPlate preserves hasPaintSupports from sourceInfo', () =
   const merged = mergeThreeMfInfoForPlate(plateInfo, sourceInfo);
   assert.equal(merged.hasPaintSupports, true, 'mergeThreeMfInfoForPlate must carry hasPaintSupports from sourceInfo');
 });
+
+// ── JS-only (no Kotlin JVM test exists): buildSelectedPlateInfo sanity ──────
+import { buildSelectedPlateInfo } from '../pipeline/merge-three-mf-info.mjs';
+
+test('buildSelectedPlateInfo narrows plates, unions per-part extruders and keeps compound parts (JS-only)', () => {
+  const sourceInfo = info({
+    plates: [plate(1, 'p1', ['10']), plate(3, 'p3', ['58'], { filamentMapSlots: S(4) })],
+    isBambu: true, isMultiPlate: true,
+    usedExtruderIndices: S(1, 2, 3, 4),
+    objectExtruderMap: M(['10', 1], ['58', 1], ['59', 2], ['60', 3]),
+    objectPartExtruders: M(['58', S(1, 2, 3)]),
+    compoundPartParents: M(['59', '58'], ['60', '58']),
+  });
+  const narrowed = buildSelectedPlateInfo(sourceInfo, 3);
+  assert.deepEqual(narrowed.plates.map((p) => p.plateId), [3]);
+  assert.deepEqual([...narrowed.usedExtruderIndices], [1, 2, 3, 4]);
+  assert.deepEqual(narrowed.objectExtruderMap, M(['58', 1], ['59', 2], ['60', 3]));
+  assert.equal(buildSelectedPlateInfo(sourceInfo, 99), sourceInfo);
+});
