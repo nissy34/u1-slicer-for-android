@@ -146,9 +146,13 @@ jobs:
           grep -qx 'T2' /tmp/cc.gcode && grep -qx 'T3' /tmp/cc.gcode
           ! grep -qx 'T0' /tmp/cc.gcode
 
-      - name: Engine integration tests (fixture harness)
+      # The quicker instrumented-test ports (~13 min); `npm run test:engine` runs all (~55 min).
+      - name: Engine integration tests
         working-directory: wasm/web
-        run: node --test --test-concurrency=1 test-engine/fixture-harness.test.mjs
+        run: |
+          node --test --test-concurrency=1 test-engine/fixture-harness.test.mjs \
+            test-engine/bambu-pipeline-integration.test.mjs test-engine/profile-embedder-integration.test.mjs \
+            test-engine/negative-volume-preservation.test.mjs
 
       - name: Browser smoke test (Chromium)
         working-directory: wasm/web

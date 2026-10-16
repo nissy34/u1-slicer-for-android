@@ -316,18 +316,39 @@ file the way the app does.
 - `npm test` runs the unit tests: every ported Kotlin unit test, 661 passing and 17
   skipped. The skipped cases need the native engine; their sliced equivalents are in
   `test-engine/`.
-- `npm run test:engine` runs the instrumented tests on the wasm engine.
-  `fixture-harness.test.mjs` mirrors `BambuFixtureHarnessTest`, and all six approved
-  fixture specs pass:
-  - colored Benchy
-  - Dragon Scale plate 3
-  - Button-for-S-trousers
-  - flippy-flappy plate 4
-  - Shashibo plate 5
-  - slip-slide-spin plate 3
+- `npm run test:engine` runs the app's native-slicing instrumented tests on the wasm
+  engine, one JS test per Kotlin `@Test` with the same assertions and tolerances: 140
+  tests, 132 passing, 8 skipped, 0 failing, about 55 min on 4 cores. Native calls go
+  straight to the engine, ViewModel flows go through `session.mjs`.
 
-  They are checked for per-tool G-code counts within the app's tolerances, paint state,
-  enriched extruder count and bed bounds.
+  | Kotlin instrumented test | Ported / pass / skip |
+  |---|---|
+  | `BambuPipelineIntegrationTest` | 42 / 42 / 0 |
+  | `SlicingIntegrationTest` | 54 / 52 / 2 |
+  | `PreparePreviewViewModelTest` | 25 / 19 / 6 |
+  | `ProfileEmbedderIntegrationTest` (engine cases) | 17 / 17 / 0 |
+  | `SemmSlicingTest` | 12 / 12 / 0 |
+  | `BambuFixtureHarnessTest` | 6 / 6 / 0 |
+  | `BambuPlateStateRegressionTest` | 4 / 4 / 0 |
+  | `SensoryTwistSupportsTest`, `NegativeVolumePreservationTest`, `GoatDedupeSemmTest` | 3 / 3 / 0 |
+
+  - **All six fixture specs pass.** `fixture-harness.test.mjs` mirrors
+    `BambuFixtureHarnessTest`: colored Benchy, Dragon Scale plate 3,
+    Button-for-S-trousers, flippy-flappy plate 4, Shashibo plate 5 and slip-slide-spin
+    plate 3. Each is checked for per-tool G-code counts within the app's tolerances,
+    paint state, enriched extruder count and bed bounds.
+  - **Skips, Android-only machinery:**
+    - slice cancel from a second thread
+    - StateFlow emission order
+    - `content://` Uri import
+    - the Compose mesh cache
+  - **Skips, viewer code not ported:**
+    - `MultiStlCombiner`
+    - `recolorByZBands`
+    - two Buzz G-code-viewer palette checks
+  - **Bug found:** the suite found one bug in the session port, `autoArrange`, which is
+    now fixed.
+
 - Spot checks through `node/pipeline-slice.mjs`:
   - Colored Benchy keeps its own 0.10 mm layer height (preserve path), gets 48×48 and
     300×300 thumbnails, and its tool counts match the app's spec.
@@ -337,7 +358,8 @@ file the way the app does.
     and no `T0`.
 - `smoke-test.mjs` drives the page in Chromium, now also through the multi-plate picker
   (`SMOKE_PLATE`). CI runs it on an STL, a STEP file and Dragon Scale plate 3, plus a
-  Node pipeline check and the fixture harness.
+  Node pipeline check and the quicker engine suites: fixture harness, Bambu pipeline,
+  ProfileEmbedder integration and negative volume, about 13 min.
 
 ### Behaviour differences from the app
 
