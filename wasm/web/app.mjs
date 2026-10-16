@@ -184,6 +184,8 @@ function onSliced({ result, gcode, preview: p, heapMB, ms }) {
   $('stats').innerHTML = stats.map(([v, k]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
   $('resultCard').hidden = $('printerCard').hidden = false;
   $('tabGcode').disabled = false;
+  // Multi-colour prints are easier to read coloured by extruder.
+  $('colorBy').value = new Set(p.tools).size > 1 ? 'tool' : 'feature';
   view.showGcode(p, $('colorBy').value);
   $('layer').max = Math.max(0, p.layerZ.length - 1);
   $('layer').value = $('layer').max;
