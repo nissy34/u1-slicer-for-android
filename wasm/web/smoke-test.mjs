@@ -47,6 +47,12 @@ try {
     return s.classList.contains('ok') || s.classList.contains('error');
   }, null, { timeout: 300_000 });
   console.log('model:', await page.textContent('#modelStatus'));
+  console.log('colours:', await page.textContent('#coloursTitle'), '|',
+    (await page.$$eval('#colourRows select', (els) => els.map((e) => `E${Number(e.value) + 1}`))).join(' '));
+  // SMOKE_SLOT=N assigns every colour to extruder N (1-4) before slicing.
+  if (process.env.SMOKE_SLOT) {
+    for (const sel of await page.$$('#colourRows select')) await sel.selectOption(String(Number(process.env.SMOKE_SLOT) - 1));
+  }
   const t0 = Date.now();
   await page.click('#slice');
   await page.waitForFunction(() => {
@@ -61,6 +67,11 @@ try {
   const log = await page.textContent('#log');
   const suspicious = log.split('\n').filter((l) => /abort|exception|uncaught|failed|RuntimeError/i.test(l));
   if (suspicious.length) console.log('engine log (suspicious lines):\n  ' + suspicious.slice(0, 20).join('\n  '));
+  if (process.env.SMOKE_GCODE) {
+    // Save the page's (remapped) G-code via the Download button.
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#download')]);
+    await dl.saveAs(process.env.SMOKE_GCODE);
+  }
   if (shot) await page.screenshot({ path: shot, fullPage: true });
 } finally {
   await browser.close();

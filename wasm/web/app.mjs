@@ -20,16 +20,55 @@ const applyTemps = () => {
 $('material').onchange = applyTemps;
 $('plateType').onchange = () => { store.set('u1.plateType', $('plateType').value); applyTemps(); };
 applyTemps();
-$('extruders').onchange = () => { $('wipe_tower_enabled').checked = Number($('extruders').value) > 1; };
 $('printerUrl').value = store.get('u1.printerUrl') ?? '';
 $('printerUrl').onchange = () => store.set('u1.printerUrl', $('printerUrl').value);
 
 // The machine start/end G-code is the app's B106 asset, served next to the page.
 const printerProfile = fetch('profiles/printer/snapmaker_u1.json').then((r) => r.json()).catch(() => null);
 
+// ---- colours -> extruder slots -----------------------------------------------------
+// One entry per colour in the file (file filament / paint state). The engine
+// slices with one tool per colour; the worker then rewrites T<i> to the chosen
+// physical U1 slot (the app's canonical colorMapping + GcodeToolRemapper flow).
+let fileColours = [];   // '#RRGGBB' per file colour
+let mapping = [0];      // file colour index -> slot 0..3
+
+const SLOTS = 4;
+const colourOf = (i) => fileColours[i] ?? SLOT_COLORS[i % SLOT_COLORS.length];
+/** Preview colour for each physical slot: the first file colour mapped onto it. */
+const slotColours = () => Array.from({ length: SLOTS }, (_, s) => {
+  const i = mapping.indexOf(s);
+  return i >= 0 ? colourOf(i) : SLOT_COLORS[s];
+});
+
+function renderColours() {
+  const multi = mapping.length > 1;
+  $('coloursTitle').textContent = multi ? `Colours → extruders (${mapping.length})` : 'Extruder';
+  $('colourRows').innerHTML = mapping.map((slot, i) => `
+    <div class="colour-row">
+      <span class="swatch" style="background:${colourOf(i)}"></span>
+      <span>${multi ? `Colour ${i + 1}` : 'Model'} <span class="note">${fileColours[i] ?? ''}</span></span>
+      <select data-i="${i}">${Array.from({ length: SLOTS }, (_, s) =>
+        `<option value="${s}" ${s === slot ? 'selected' : ''}>E${s + 1}</option>`).join('')}</select>
+    </div>`).join('');
+  for (const sel of $('colourRows').querySelectorAll('select')) {
+    sel.onchange = () => { mapping[Number(sel.dataset.i)] = Number(sel.value); onMappingChanged(); };
+  }
+  const distinct = new Set(mapping).size;
+  $('coloursNote').textContent = mapping.length > SLOTS
+    ? `This file has ${mapping.length} colours but the U1 has ${SLOTS} extruders; colours sharing an extruder print in the same filament.`
+    : multi && distinct < mapping.length ? 'Colours sharing an extruder print in the same filament.' : '';
+  $('coloursCard').hidden = false;
+}
+
+function onMappingChanged() {
+  $('wipe_tower_enabled').checked = new Set(mapping).size > 1;
+  renderColours();
+}
+
 async function buildConfig() {
   const material = $('material').value;
-  const n = Number($('extruders').value);
+  const n = mapping.length;
   const num = (id) => Number($(id).value);
   const cfg = appSliceDefaults(await printerProfile, { material, plate: $('plateType').value });
   Object.assign(cfg, {
@@ -46,6 +85,7 @@ async function buildConfig() {
     wipe_tower_enabled: $('wipe_tower_enabled').checked,
   });
   if (n > 1) {
+    // One entry per file colour (the engine's tool space, before remapping).
     cfg.filament_types = Array(n).fill(material);
     cfg.extruder_temps = Array(n).fill(cfg.nozzle_temp);
   }
@@ -77,11 +117,12 @@ function renderLegend(tab) {
     const present = new Set(preview.features);
     items = self.GCODE_FEATURES.filter((_, i) => present.has(i)).map((f) => [f, FEATURE_COLORS[f]]);
   } else if (tab === 'gcode' && preview) {
-    items = [...new Set(preview.tools)].sort().map((t) => [`T${t} / E${t + 1}`, SLOT_COLORS[t % SLOT_COLORS.length]]);
+    const sc = slotColours();
+    items = [...new Set(preview.tools)].sort().map((t) => [`E${t + 1}`, sc[t] ?? SLOT_COLORS[t % SLOT_COLORS.length]]);
   }
   $('legend').innerHTML = items.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join('');
 }
-$('colorBy').onchange = () => { view.recolorGcode($('colorBy').value); renderLegend('gcode'); };
+$('colorBy').onchange = () => { view.recolorGcode($('colorBy').value, slotColours()); renderLegend('gcode'); };
 
 let preview = null;
 $('layer').oninput = () => {
@@ -122,12 +163,23 @@ worker.onmessage = ({ data }) => {
       setStatus('modelStatus', `${m.filename}: ${m.sizeX.toFixed(1)} × ${m.sizeY.toFixed(1)} × ${m.sizeZ.toFixed(1)} mm · ` +
         `${m.triangleCount.toLocaleString()} triangles · ${m.volumeCount} part(s) · loaded in ${(data.ms / 1000).toFixed(1)} s`, 'ok');
       $('viewportHint').hidden = true;
-      view.showModel(data.mesh);
-      const slots = new Set(data.mesh.extruders);
-      if (slots.size > 1 && $('extruders').value === '1') {
-        $('extruders').value = String(Math.min(4, Math.max(...slots) + 1));
-        $('wipe_tower_enabled').checked = true;
-      }
+      fileColours = data.fileColours;
+      let maxState = 0;
+      for (const e of data.mesh.extruders) if (e > maxState) maxState = e;
+      // The file's filament list is authoritative. The preview mesh's indices are
+      // paint states for painted files but per-part indices otherwise (the app
+      // resolves part -> filament in Kotlin), so they only count colours when the
+      // file has no filament list (e.g. PrusaSlicer-painted 3MFs).
+      const count = fileColours.length || maxState + 1;
+      const meshIsColours = maxState < count;
+      // App default: identity for up to 4 colours, folded i % 4 beyond that.
+      mapping = Array.from({ length: count }, (_, i) => i % SLOTS);
+      onMappingChanged();
+      view.showModel(data.mesh, meshIsColours
+        ? Array.from({ length: count }, (_, i) => colourOf(i))
+        : ['#b8bec9']);
+      $('coloursNote').textContent ||= meshIsColours ? ''
+        : 'Model view shows parts in one colour; the G-code view shows each extruder.';
       $('slice').disabled = false;
       setTab('model');
       break;
@@ -150,7 +202,7 @@ async function loadModel() {
   modelLoaded = false;
   $('slice').disabled = true;
   $('tabGcode').disabled = true;
-  $('resultCard').hidden = $('printerCard').hidden = true;
+  $('resultCard').hidden = $('printerCard').hidden = $('coloursCard').hidden = true;
   setStatus('modelStatus', `Loading ${f.name}…`);
   gcodeName = f.name.replace(/\.[^.]+$/, '') + '.gcode';
   const bytes = await f.arrayBuffer();
@@ -163,7 +215,7 @@ $('slice').onclick = async () => {
   $('slice').disabled = true;
   $('progress').value = 0;
   setStatus('sliceStatus', 'Slicing…');
-  worker.postMessage({ type: 'slice', config: await buildConfig() });
+  worker.postMessage({ type: 'slice', config: await buildConfig(), toolMap: mapping.slice() });
 };
 
 function onSliced({ result, gcode, preview: p, heapMB, ms }) {
@@ -186,7 +238,7 @@ function onSliced({ result, gcode, preview: p, heapMB, ms }) {
   $('tabGcode').disabled = false;
   // Multi-colour prints are easier to read coloured by extruder.
   $('colorBy').value = new Set(p.tools).size > 1 ? 'tool' : 'feature';
-  view.showGcode(p, $('colorBy').value);
+  view.showGcode(p, $('colorBy').value, slotColours());
   $('layer').max = Math.max(0, p.layerZ.length - 1);
   $('layer').value = $('layer').max;
   $('layer').oninput();

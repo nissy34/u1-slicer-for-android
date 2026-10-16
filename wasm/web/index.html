@@ -69,6 +69,9 @@
   details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
   details pre { max-height: 220px; overflow: auto; font-size: 11px; white-space: pre-wrap; margin: 8px 0 0; }
   .note { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+  .colour-rows { display: grid; gap: 8px; }
+  .colour-row { display: grid; grid-template-columns: 22px 1fr 110px; gap: 10px; align-items: center; font-size: 13px; }
+  .swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -84,11 +87,14 @@
       <div class="grid2">
         <label class="span2">STL, 3MF or OBJ<input id="file" type="file" accept=".stl,.3mf,.obj"></label>
         <label>3MF plate<input id="plate" type="number" min="0" value="0" title="0 = all plates"></label>
-        <label>Extruders used
-          <select id="extruders"><option>1</option><option>2</option><option>3</option><option>4</option></select>
-        </label>
       </div>
       <p class="status" id="modelStatus">Starting engine…</p>
+    </section>
+
+    <section class="card" id="coloursCard" hidden>
+      <h2 id="coloursTitle">Extruder</h2>
+      <div id="colourRows" class="colour-rows"></div>
+      <p class="note" id="coloursNote"></p>
     </section>
 
     <section class="card">
@@ -100,7 +106,7 @@
         <label>Bed (°C)<input id="bed_temp" type="number"></label>
         <label>Layer height
           <select id="layer_height">
-            <option value="0">Profile (0.20)</option><option>0.08</option><option>0.12</option><option>0.16</option>
+            <option value="0">From file (else 0.20)</option><option>0.08</option><option>0.12</option><option>0.16</option>
             <option>0.20</option><option>0.24</option><option>0.28</option>
           </select>
         </label>

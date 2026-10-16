@@ -16,6 +16,7 @@ export const SITE_FILES = {
   'preview3d.mjs': join(web, 'preview3d.mjs'),
   'printer.mjs': join(web, 'printer.mjs'),
   'gcode-preview.js': join(web, 'gcode-preview.js'),
+  'gcode-tool-remap.js': join(web, 'gcode-tool-remap.js'),
   'slicer-worker.js': join(web, 'slicer-worker.js'),
   'u1slicer.js': join(engine, 'u1slicer.js'),
   'u1slicer.wasm': join(engine, 'u1slicer.wasm'),

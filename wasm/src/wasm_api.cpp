@@ -12,11 +12,18 @@
 #include <emscripten/threading.h>
 #include "slice_config_json.hpp"
 
+#include "libslic3r/PrintConfig.hpp"
+
 #include <memory>
 #include <string>
 
 using nlohmann::json;
 using u1slicer::config_from_json;
+
+namespace sapil {
+// sapil_model.cpp: the config embedded in the loaded 3MF (project_settings.config).
+Slic3r::DynamicPrintConfig& getModelConfig();
+}
 
 namespace {
 
@@ -91,6 +98,13 @@ emscripten::val previewMesh(int maxTriangles) {
     return out;
 }
 
+// A key from the loaded 3MF's embedded project config, serialised the way
+// Orca writes it (e.g. filament_colour -> "#FF0000;#00FF00"); "" if absent.
+std::string projectConfigValue(const std::string& key) {
+    const Slic3r::ConfigOption* opt = sapil::getModelConfig().option(key);
+    return opt ? opt->serialize() : std::string();
+}
+
 void clearModel() { engine().clearModel(); }
 
 // Current size of the wasm heap in bytes. Linear memory only ever grows, so
@@ -109,4 +123,5 @@ EMSCRIPTEN_BINDINGS(u1slicer) {
     emscripten::function("clearModel", &clearModel);
     emscripten::function("heapBytes", &heapBytes);
     emscripten::function("previewMesh", &previewMesh);
+    emscripten::function("projectConfigValue", &projectConfigValue);
 }

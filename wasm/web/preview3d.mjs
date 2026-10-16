@@ -34,6 +34,9 @@ export class Preview3D {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(BED / 2, BED / 2, 0);
     this.controls.update();
+    // Re-fit on resize until the user takes over the camera.
+    this.fitBounds = null;
+    this.controls.addEventListener('start', () => { this.fitBounds = null; });
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 2.2));
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -81,6 +84,7 @@ export class Preview3D {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    if (this.fitBounds) this.#frame(this.fitBounds);
   }
 
   #clear(obj) {
@@ -93,10 +97,16 @@ export class Preview3D {
   #frame(bounds) {
     const [x0, y0, z0, x1, y1, z1] = bounds;
     const c = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-    const r = Math.max(x1 - x0, y1 - y0, z1 - z0, 20);
+    // Fit the bounding sphere to the narrower of the two fields of view.
+    const radius = Math.max(10, 0.5 * Math.hypot(x1 - x0, y1 - y0, z1 - z0));
+    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
+    const dist = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.05;
+    const dir = new THREE.Vector3(0.45, -0.75, 0.55).normalize();
     this.controls.target.copy(c);
-    this.camera.position.set(c.x + r * 0.9, c.y - r * 1.4, c.z + r * 1.1);
+    this.camera.position.copy(c).addScaledVector(dir, dist);
     this.controls.update();
+    this.fitBounds = bounds;
   }
 
   /** mesh: { positions: Float32Array (9/tri), extruders: Uint8Array } */

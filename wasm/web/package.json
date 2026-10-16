@@ -5,7 +5,8 @@
   "scripts": {
     "serve": "node serve.mjs",
     "package": "node package.mjs",
-    "smoke": "node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl"
+    "smoke": "node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "three": "0.186.1"
