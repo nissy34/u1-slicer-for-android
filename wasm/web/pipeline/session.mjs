@@ -854,28 +854,21 @@ export class SlicerSession {
       extruderCount: this.config.extruderCount,
       wipeTowerEnabled: this.config.wipeTowerEnabled,
       wipeTower: { x: this.config.wipeTowerX, y: this.config.wipeTowerY, size: this.wipeTowerSize(), clamp: this.wipeTowerClamp() },
-      fileSettings: this.fileSettings(),
+      // The source 3MF's own settings (the app's "File: …" hints), scalars as strings.
+      fileConfig: this.fileConfig(),
+      filamentType: this.config.filamentType,
       edit: {
         multiObject: this.multiObject, copyCount: this.copyCount, scale: this.modelScale, rotation: this.modelRotation,
-        positions: this.modelInfo ? [...this.placementPositions()] : [], copyBedWarning: this.modelInfo ? this.copyBedWarning() : null,
+        positions: this.modelInfo ? [...this.placementPositions()] : [], footprint: this.copyFootprint(), copyBedWarning: this.modelInfo ? this.copyBedWarning() : null,
       },
       objects: this.modelInfo ? this.objects() : [],
     };
   }
 
-  /** The 3MF's own process values the "From file" (USE_FILE) settings will keep. */
-  fileSettings() {
+  /** _sourceConfig as a plain object (null for files without an embedded Bambu/Orca config). */
+  fileConfig() {
     const c = this.sourceConfig;
     if (!c) return null;
-    const pick = (k) => {
-      const v = c instanceof Map ? c.get(k) : c[k];
-      return Array.isArray(v) ? v[0] : v;
-    };
-    return {
-      layer_height: pick('layer_height'), wall_loops: pick('wall_loops'),
-      sparse_infill_density: pick('sparse_infill_density'), sparse_infill_pattern: pick('sparse_infill_pattern'),
-      enable_support: pick('enable_support'), support_type: pick('support_type'),
-      brim_width: pick('brim_width'), brim_type: pick('brim_type'), enable_prime_tower: pick('enable_prime_tower'),
-    };
+    return c instanceof Map ? Object.fromEntries(c) : { ...c };
   }
 }

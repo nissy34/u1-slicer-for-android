@@ -46,9 +46,22 @@ try {
     const s = document.getElementById('modelStatus');
     return s.classList.contains('ok') || s.classList.contains('error');
   }, null, { timeout: 300_000 });
+  // Multi-plate 3MFs: pick SMOKE_PLATE (default: the first plate).
+  if (await page.isVisible('#plateWrap')) {
+    const plates = await page.$$eval('#plate option', (os) => os.map((o) => o.value).filter(Boolean));
+    console.log('plates:', plates.join(' '));
+    await page.evaluate(() => { const s = document.getElementById('modelStatus'); s.className = 'status'; });
+    await page.selectOption('#plate', process.env.SMOKE_PLATE ?? plates[0]);
+    await page.waitForFunction(() => {
+      const s = document.getElementById('modelStatus');
+      return s.classList.contains('error') || (s.classList.contains('ok') && s.textContent.includes('triangles'));
+    }, null, { timeout: 300_000 });
+  }
   console.log('model:', await page.textContent('#modelStatus'));
+  if (!(await page.textContent('#modelStatus')).includes('triangles')) failed = true;
   console.log('colours:', await page.textContent('#coloursTitle'), '|',
     (await page.$$eval('#colourRows select', (els) => els.map((e) => `E${Number(e.value) + 1}`))).join(' '));
+  console.log('objects:', await page.$$eval('#arrangeCard', (els) => (els[0]?.hidden ? 'arrange hidden' : 'arrange shown')));
   // SMOKE_SLOT=N assigns every colour to extruder N (1-4) before slicing.
   if (process.env.SMOKE_SLOT) {
     for (const sel of await page.$$('#colourRows select')) await sel.selectOption(String(Number(process.env.SMOKE_SLOT) - 1));

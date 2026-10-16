@@ -1,7 +1,7 @@
 // The published site, as { published path: source file }. Shared by the dev
 // server (serve.mjs) and the deploy packager (package.mjs) so local testing
 // serves exactly what Cloudflare will.
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,10 +16,10 @@ export const SITE_FILES = {
   'index.html': join(web, 'index.html'),
   'app.mjs': join(web, 'app.mjs'),
   'app-defaults.mjs': join(web, 'app-defaults.mjs'),
+  'settings-schema.mjs': join(web, 'settings-schema.mjs'),
   'preview3d.mjs': join(web, 'preview3d.mjs'),
   'printer.mjs': join(web, 'printer.mjs'),
   'gcode-preview.js': join(web, 'gcode-preview.js'),
-  'gcode-tool-remap.js': join(web, 'gcode-tool-remap.js'),
   'slicer-worker.js': join(web, 'slicer-worker.js'),
   'u1slicer.js': join(engine, 'u1slicer.js'),
   'u1slicer.wasm': join(engine, 'u1slicer.wasm'),
@@ -27,8 +27,16 @@ export const SITE_FILES = {
     'u1slicer-step.js': join(engineStep, 'u1slicer.js'),
     'u1slicer-step.wasm': join(engineStep, 'u1slicer.wasm'),
   } : {}),
-  // B106 machine start/end G-code, single source of truth shared with the app.
+  // The app's 3MF / model pipeline, ported module by module (pipeline/session.mjs).
+  ...Object.fromEntries(readdirSync(join(web, 'pipeline')).filter((f) => f.endsWith('.mjs'))
+    .map((f) => [`pipeline/${f}`, join(web, 'pipeline', f)])),
+  'vendor/fflate.mjs': join(web, 'node_modules/fflate/esm/browser.js'),
+  'vendor/fflate.LICENSE': join(web, 'node_modules/fflate/LICENSE'),
+  // The U1 profiles ProfileEmbedder merges, single source of truth shared with the app
+  // (printer also carries the B106 machine start/end G-code).
   'profiles/printer/snapmaker_u1.json': join(repo, 'app/src/main/assets/orca_profiles/printer/snapmaker_u1.json'),
+  'profiles/process/standard_0.20mm.json': join(repo, 'app/src/main/assets/orca_profiles/process/standard_0.20mm.json'),
+  'profiles/filament/pla.json': join(repo, 'app/src/main/assets/orca_profiles/filament/pla.json'),
   'vendor/three/three.module.js': join(three, 'build/three.module.js'),
   'vendor/three/three.core.js': join(three, 'build/three.core.js'),
   'vendor/three/addons/controls/OrbitControls.js': join(three, 'examples/jsm/controls/OrbitControls.js'),
