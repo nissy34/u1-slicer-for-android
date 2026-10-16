@@ -150,6 +150,11 @@ dep_occt() {
     local ORCA_PATCH="$WASM_DIR/../app/src/main/cpp/orcaslicer/deps/OCCT/0001-OCCT-fix.patch"
     if [ ! -f "$S/.u1-patched" ]; then
         git -C "$S" apply --ignore-space-change --whitespace=fix "$ORCA_PATCH"
+        # OCCT appends -fexceptions (Emscripten's JS exception model) after our
+        # -fwasm-exceptions; mixing the two yields an invalid module
+        # ("br_table: label arity inconsistent"). -fwasm-exceptions already
+        # enables C++ exceptions.
+        sed -i 's/ -fexceptions -fPIC")/ -fPIC")/' "$S/adm/cmake/occt_defs_flags.cmake"
         touch "$S/.u1-patched"
     fi
     emcmake_build "$S" "$S/build-wasm" \

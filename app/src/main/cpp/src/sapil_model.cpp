@@ -181,6 +181,17 @@ bool SlicerEngine::loadModel(const std::string& filepath, int plate_id) {
         // default for STL / OBJ / STEP and for the existing loadModel(path)
         // overload.
         std::vector<Slic3r::Preset*> project_presets;
+#ifdef SAPIL_WITH_STEP
+        // Orca routes STEP through a separate entry point; read_from_file()
+        // rejects .step/.stp. Only standalone builds with OCCT (wasm/) define
+        // SAPIL_WITH_STEP — Android ships the STEP stub and keeps the old path.
+        if (ext == "step" || ext == "stp") {
+            g_model = Slic3r::Model::read_from_step(
+                filepath, Slic3r::LoadStrategy::AddDefaultInstances,
+                /*stepFn=*/nullptr, /*stepIsUtf8Fn=*/nullptr, /*step_mesh_fn=*/nullptr,
+                /*linear_defletion=*/0.003, /*angle_defletion=*/0.5, /*is_split_compound=*/false);
+        } else
+#endif
         g_model = Slic3r::Model::read_from_file(
             filepath, &config, &config_substitutions,
             Slic3r::LoadStrategy::LoadModel | Slic3r::LoadStrategy::LoadConfig | Slic3r::LoadStrategy::AddDefaultInstances,

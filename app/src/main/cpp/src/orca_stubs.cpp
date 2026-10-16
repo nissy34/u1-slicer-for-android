@@ -13,6 +13,7 @@
 #include <functional>
 
 namespace Slic3r {
+class Model;
 class PerimeterGenerator;
 namespace Arachne { struct ExtrusionLine; }
 
