@@ -139,6 +139,38 @@ dep_nlopt() {
     cp "$WORK/nlopt-2.5.0/build-wasm/src/api/nlopt.h" "$WORK/nlopt-2.5.0/build-wasm/src/api/nlopt.hpp" \
         "$OUT/nlopt/include/"
 }
+# OCCT for STEP import — optional (not in ALL): `build-deps.sh occt`, then
+# configure the engine with -DU1SLICER_WITH_STEP=ON. Same version + patch as
+# OrcaSlicer's deps/OCCT (Android ships 7.8, whose API STEP.cpp doesn't build
+# against). Only the DataExchange module and what it pulls in; no FreeType,
+# no visualisation.
+dep_occt() {
+    fetch_git https://github.com/Open-Cascade-SAS/OCCT.git V7_6_0 OCCT-7.6.0
+    local S="$WORK/OCCT-7.6.0"
+    local ORCA_PATCH="$WASM_DIR/../app/src/main/cpp/orcaslicer/deps/OCCT/0001-OCCT-fix.patch"
+    if [ ! -f "$S/.u1-patched" ]; then
+        git -C "$S" apply --ignore-space-change --whitespace=fix "$ORCA_PATCH"
+        touch "$S/.u1-patched"
+    fi
+    emcmake_build "$S" "$S/build-wasm" \
+        -DBUILD_LIBRARY_TYPE=Static -DINSTALL_DIR="$OUT/occt" -DINSTALL_DIR_LAYOUT=Unix \
+        -DUSE_TK=OFF -DUSE_TBB=OFF -DUSE_FREETYPE=OFF -DUSE_FFMPEG=OFF -DUSE_VTK=OFF \
+        -DUSE_OPENGL=OFF -DUSE_GLES2=OFF -DUSE_FREEIMAGE=OFF -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF \
+        -DBUILD_DOC_Overview=OFF -DBUILD_SAMPLES_QT=OFF \
+        -DBUILD_MODULE_ApplicationFramework=OFF -DBUILD_MODULE_Draw=OFF \
+        -DBUILD_MODULE_FoundationClasses=OFF -DBUILD_MODULE_ModelingAlgorithms=OFF \
+        -DBUILD_MODULE_ModelingData=OFF -DBUILD_MODULE_Visualization=OFF \
+        -DBUILD_MODULE_DataExchange=ON
+    cmake --install "$S/build-wasm" >/dev/null
+    local L; L=$(libdir occt)
+    find "$OUT/occt/lib" -maxdepth 2 -name "*.a" -exec cp {} "$L/" \;
+    rm -rf "$OUT/occt/include.real"; mv "$OUT/occt/include" "$OUT/occt/include.real"
+    mkdir -p "$OUT/occt/include"
+    # Flatten include/opencascade/*.hxx so <STEPCAFControl_Reader.hxx> resolves
+    # with the same -I the Android bundle uses (extern/occt/include).
+    cp -r "$OUT/occt/include.real"/opencascade*/* "$OUT/occt/include/"
+    rm -rf "$OUT/occt/include.real"
+}
 dep_gmp() {
     local V=6.3.0
     fetch_tar "https://ftp.gnu.org/gnu/gmp/gmp-$V.tar.xz" "gmp-$V"

@@ -52,12 +52,19 @@ jobs:
           git init -q && git remote add origin "$url"
           git fetch -q --depth 1 origin "$sha" && git checkout -q FETCH_HEAD
 
+      - name: Android build graph unchanged by wasm work
+        # Configure-only (no NDK): the shared native CMakeLists must generate the
+        # identical Android build as the default branch.
+        run: |
+          sudo apt-get install -y -qq ninja-build zip
+          git fetch -q --depth 1 origin "${{ github.event.repository.default_branch }}"
+          wasm/scripts/check-android-cmake.sh FETCH_HEAD
+
       - name: Install Emscripten ${{ env.EMSDK_VERSION }}
         run: |
           git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
           "$RUNNER_TEMP/emsdk/emsdk" install "$EMSDK_VERSION"
           "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
-          sudo apt-get install -y -qq ninja-build zip
 
       - name: Restore WASM dependencies
         id: deps-cache

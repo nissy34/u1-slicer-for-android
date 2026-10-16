@@ -19,6 +19,11 @@ set(APP_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../app/src/main/cpp")
 set(SAPIL_WASM_STUB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/stubs")
 set(SLICER_BACKEND "orca" CACHE STRING "" FORCE)
 set(SAPIL_STANDALONE ON)
+# STEP import via OCCT 7.6 (wasm/scripts/build-deps.sh occt). Off by default:
+# it adds several MB to the module. Build it into its own dir, e.g.
+#   emcmake cmake -S wasm -B wasm/build/engine-step -DU1SLICER_WITH_STEP=ON ...
+option(U1SLICER_WITH_STEP "Real STEP import (needs the occt dep)" OFF)
+set(SAPIL_WITH_STEP ${U1SLICER_WITH_STEP})
 
 if(EMSCRIPTEN)
     set(EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/deps" CACHE PATH "Output of wasm/scripts/build-deps.sh")
@@ -89,7 +94,7 @@ add_subdirectory(${APP_CPP_DIR} engine)
 
 # libslic3r links its deps by bare name (-lboost_log, -ltbb, ...); the search
 # paths are directory-scoped in the engine CMakeLists, so repeat them here.
-foreach(dep boost tbb gmp mpfr zlib expat nlopt libpng libjpeg)
+foreach(dep boost tbb gmp mpfr zlib expat nlopt libpng libjpeg occt)
     link_directories("${EXTERN_DIR}/${dep}/lib/${DEP_LIB_ARCH}")
 endforeach()
 

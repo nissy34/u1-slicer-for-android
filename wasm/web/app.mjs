@@ -189,10 +189,15 @@ worker.onmessage = ({ data }) => {
       setStatus('sliceStatus', data.stage);
       break;
     case 'done': onSliced(data); break;
-    case 'error':
-      setStatus(modelLoaded ? 'sliceStatus' : 'modelStatus', data.message, 'error');
+    case 'error': {
+      // The wasm32 heap tops out at 4 GB; whole multi-plate projects can hit it.
+      const oom = /bad_alloc|out of memory|Cannot enlarge memory/i.test(data.message);
+      const msg = oom ? `${data.message} — out of memory in the browser engine (4 GB limit). ` +
+        'Pick a single 3MF plate (plate number above) or scale the model down.' : data.message;
+      setStatus(modelLoaded ? 'sliceStatus' : 'modelStatus', msg, 'error');
       $('slice').disabled = !modelLoaded;
       break;
+    }
   }
 };
 

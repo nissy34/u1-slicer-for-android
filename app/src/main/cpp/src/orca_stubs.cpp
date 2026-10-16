@@ -4,7 +4,9 @@
 // Use our Android STEP.hpp stub (provides Step class without OCCT dependency).
 // Include path has extern/libslic3r_android first, so "Format/STEP.hpp" picks
 // up our stub before the real OCCT-dependent header.
+#ifndef SAPIL_WITH_STEP
 #include "Format/STEP.hpp"
+#endif
 #include "libslic3r/Polygon.hpp"
 #include <string>
 #include <vector>
@@ -14,6 +16,7 @@ namespace Slic3r {
 class PerimeterGenerator;
 namespace Arachne { struct ExtrusionLine; }
 
+#ifndef SAPIL_WITH_STEP
 // STEP — excluded (needs OCCT). Implement Step class methods declared in stub header.
 Step::Step(std::string, ImportStepProgressFn, StepIsUtf8Fn) {}
 bool Step::load() { return false; }
@@ -24,6 +27,7 @@ bool load_step(const char*, Model*, bool&,
                long&) {
     return false;
 }
+#endif // SAPIL_WITH_STEP — real Format/STEP.cpp is compiled instead
 
 // FuzzySkin — excluded (needs libnoise)
 namespace Feature { namespace FuzzySkin {

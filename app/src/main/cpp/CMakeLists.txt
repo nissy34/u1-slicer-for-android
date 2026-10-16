@@ -127,6 +127,10 @@ if(SAPIL_STANDALONE)
     endforeach()
 endif()
 
+if(SAPIL_STANDALONE AND SAPIL_WITH_STEP)
+    list(REMOVE_ITEM BUNDLED_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/extern/libslic3r_android)
+endif()
+
 # =============================================================================
 # HWASan (Hardware Address Sanitizer) — diagnostic build for memory bugs
 # Enable with: cmake -DENABLE_HWASAN=ON
@@ -254,10 +258,17 @@ else()
     )
 endif()
 
-if(SAPIL_STANDALONE)
+if(SAPIL_STANDALONE AND NOT SAPIL_WITH_STEP)
     # STEP/SVG import (the only OCCT users) are already excluded; nothing left
     # in the FFF path needs OCCT, so standalone builds skip the 1 GB dependency.
     set(OCCT_LIBS "")
+elseif(SAPIL_STANDALONE)
+    # OCCT 7.6 toolkit names (Orca's own pin), DataExchange subset.
+    set(OCCT_LIBS
+        TKXDESTEP TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKXCAF TKXSBase TKVCAF TKCAF TKLCAF
+        TKCDF TKV3d TKService TKMesh TKBO TKPrim TKHLR TKShHealing TKTopAlgo TKGeomAlgo
+        TKBRep TKGeomBase TKG3d TKG2d TKMath TKernel)
+    add_compile_definitions(SAPIL_WITH_STEP=1)
 endif()
 
 # --- Clipper2 ---
@@ -1065,6 +1076,13 @@ if(SLICER_BACKEND STREQUAL "orca")
     )
 endif()
 
+if(SAPIL_STANDALONE AND SAPIL_WITH_STEP)
+    # Real STEP import (OCCT 7.6, wasm/scripts/build-deps.sh occt) instead of the
+    # Android stub. The stub header is dropped from BUNDLED_INCLUDES where that
+    # list is defined, so every target sees one Step class.
+    list(APPEND LIBSLIC3R_CORE_SOURCES ${LIBSLIC3R_DIR}/Format/STEP.cpp)
+endif()
+
 if(SAPIL_STANDALONE)
     # Patched copies of engine sources (see wasm/CMakeLists.txt). Each copy lives
     # outside its original directory, so give it that directory for its
@@ -1089,7 +1107,7 @@ target_compile_definitions(libslic3r PUBLIC
 )
 
 target_include_directories(libslic3r PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/libslic3r_android
+    $<$<NOT:$<BOOL:${SAPIL_WITH_STEP}>>:${CMAKE_CURRENT_SOURCE_DIR}/extern/libslic3r_android>
     ${PRUSA_DIR}/src
     ${LIBSLIC3R_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}

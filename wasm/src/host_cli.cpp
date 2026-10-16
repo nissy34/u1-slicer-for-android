@@ -10,6 +10,7 @@
 #include "slice_config_json.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -78,8 +79,16 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "result: success=%d layers=%d time=%.0fs filament=%.1fmm err=%s\n", r.success,
                  r.total_layers, r.estimated_time_seconds, r.estimated_filament_mm, r.error_message.c_str());
     std::fprintf(stderr, "timing: load %lldms, slice %lldms\n", ms(t1 - t0), ms(t2 - t1));
-    if (!r.success) return 1;
-    fs::copy_file(r.gcode_path, args[1], fs::copy_options::overwrite_existing);
+    int rc = 1;
+    if (r.success) {
+        fs::copy_file(r.gcode_path, args[1], fs::copy_options::overwrite_existing);
+        rc = 0;
+    }
     fs::remove_all(work);
-    return 0;
+    // Skip static destructors: the engine's global Slic3r::Model is destroyed
+    // after Boost.Log's thread-local storage, ~Model logs, and Boost.Log throws
+    // ("Failed to set TLS value") -> std::terminate at exit. The app never runs
+    // static destructors this way; a CLI can just leave.
+    std::fflush(nullptr);
+    std::quick_exit(rc);
 }
