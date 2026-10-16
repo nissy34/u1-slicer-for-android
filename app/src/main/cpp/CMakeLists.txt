@@ -21,10 +21,16 @@ message(STATUS "SLICER_BACKEND=${SLICER_BACKEND}")
 # dependency bundle while compiling the worktree's own native sources.
 set(EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern" CACHE PATH "Prebuilt Android dependency root")
 set(ABI_DIR "${ANDROID_ABI}")
-# WebAssembly spike (wasm/CMakeLists.txt): same engine sources, Emscripten
-# toolchain, deps from wasm/scripts/build-deps.sh in the same extern/ layout.
+# Standalone (non-Android) engine builds, driven by wasm/CMakeLists.txt: the
+# WebAssembly spike (Emscripten, deps from wasm/scripts/build-deps.sh in this
+# same extern/ layout) and a native host reference build (system packages).
+# Both compile the identical engine sources; only the dependency plumbing and
+# the final (non-JNI) target differ.
 if(EMSCRIPTEN)
+    set(SAPIL_STANDALONE ON)
     set(ABI_DIR "wasm32")
+elseif(SAPIL_STANDALONE)
+    set(ABI_DIR "${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 
 if(SLICER_BACKEND STREQUAL "orca")
@@ -108,10 +114,12 @@ else()
     )
 endif()
 
-if(EMSCRIPTEN)
+if(SAPIL_STANDALONE)
     # Stub headers that replace optional deps (openssl/md5.h) + real NLopt for
     # libnest2d. Prepended so they shadow anything in the Android bundle.
     # libpng/libjpeg are real libraries here (Android uses header stubs).
+    # TreeSupport3D.cpp includes sapil_diagnostics.h -> sapil.h: no JNI here.
+    add_compile_definitions(SAPIL_HAS_JNI=0)
     list(PREPEND BUNDLED_INCLUDES ${SAPIL_WASM_STUB_DIR}
         ${EXTERN_DIR}/nlopt/include ${EXTERN_DIR}/libpng/include ${EXTERN_DIR}/libjpeg/include)
     foreach(dep nlopt libpng libjpeg)
@@ -178,7 +186,7 @@ include_directories("${BOOST_ROOT}/include")
 link_directories("${BOOST_ROOT}/lib/${ABI_DIR}")
 # Note: Boost-for-Android uses custom suffixes for the .a files
 set(BOOST_SUFFIX "-clang-mt-a64-1_84")
-if(EMSCRIPTEN)
+if(SAPIL_STANDALONE)
     set(BOOST_SUFFIX "")  # b2 --layout=system
 endif()
 set(BOOST_LIBS
@@ -206,7 +214,9 @@ include_directories("${EXTERN_DIR}/eigen/include")
 # with defaulted move constructors that have no memory barriers on ARM64).
 # Non-shimmed headers (data structures, allocators, mutexes, task_group) fall
 # through to real TBB — they work correctly in single-threaded execution.
-include_directories(BEFORE "${EXTERN_DIR}/tbb_serial")
+# The shim is tracked in git under the source tree; do not resolve it via
+# EXTERN_DIR, which may point at an external prebuilt-deps bundle.
+include_directories(BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/extern/tbb_serial")
 include_directories("${EXTERN_DIR}/tbb/include")
 link_directories("${EXTERN_DIR}/tbb/lib/${ABI_DIR}")
 
@@ -244,9 +254,9 @@ else()
     )
 endif()
 
-if(EMSCRIPTEN)
+if(SAPIL_STANDALONE)
     # STEP/SVG import (the only OCCT users) are already excluded; nothing left
-    # in the FFF path needs OCCT, so the wasm build skips the 1 GB dependency.
+    # in the FFF path needs OCCT, so standalone builds skip the 1 GB dependency.
     set(OCCT_LIBS "")
 endif()
 
@@ -1099,15 +1109,15 @@ if(SLICER_BACKEND STREQUAL "orca")
         gmpxx
         gmp
         mpfr
-        $<$<NOT:$<BOOL:${EMSCRIPTEN}>>:Clipper2>
-        $<$<BOOL:${EMSCRIPTEN}>:nlopt>
-        $<$<BOOL:${EMSCRIPTEN}>:png>
-        $<$<BOOL:${EMSCRIPTEN}>:jpeg>
+        $<$<NOT:$<BOOL:${SAPIL_STANDALONE}>>:Clipper2>
+        $<$<BOOL:${SAPIL_STANDALONE}>:nlopt>
+        $<$<BOOL:${SAPIL_STANDALONE}>:png>
+        $<$<BOOL:${SAPIL_STANDALONE}>:jpeg>
         z
         expat
     )
 
-    if(EMSCRIPTEN)
+    if(SAPIL_STANDALONE)
         # Snapmaker-U1 engine patches in the Orca fork are gated on __ANDROID__
         # (F71 EXCLUDE_OBJECT_DEFINE for every gcode flavor, serial-shim-safe
         # TBB thread naming, FaceDetector skip). Define it for exactly those
@@ -1117,6 +1127,15 @@ if(SLICER_BACKEND STREQUAL "orca")
             ${LIBSLIC3R_DIR}/Thread.cpp
             ${LIBSLIC3R_DIR}/Model.cpp
             PROPERTIES COMPILE_DEFINITIONS "__ANDROID__=1")
+        # TEMP-DEBUG: Arachne with asserts on
+        if(SAPIL_ARACHNE_ASSERTS)
+            file(GLOB_RECURSE _arachne_srcs ${LIBSLIC3R_DIR}/Arachne/*.cpp ${LIBSLIC3R_DIR}/Geometry/Voronoi*.cpp)
+            set_source_files_properties(${_arachne_srcs} PROPERTIES COMPILE_OPTIONS "-UNDEBUG")
+        endif()
+        # Platform.cpp static_asserts on unknown OSes; Emscripten is POSIX enough
+        # to take the Linux branch (its /proc/version probe just fails).
+        set_source_files_properties(${LIBSLIC3R_DIR}/Platform.cpp
+            PROPERTIES COMPILE_DEFINITIONS "__linux__=1")
     endif()
 else()
     target_link_libraries(libslic3r PRIVATE
@@ -1151,8 +1170,8 @@ else()
     )
 endif()
 
-if(EMSCRIPTEN)
-    # wasm/CMakeLists.txt builds its own non-JNI entry point on top of libslic3r.
+if(SAPIL_STANDALONE)
+    # wasm/CMakeLists.txt builds its own non-JNI entry points on top of libslic3r.
     return()
 endif()
 

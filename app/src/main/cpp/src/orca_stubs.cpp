@@ -5,6 +5,7 @@
 // Include path has extern/libslic3r_android first, so "Format/STEP.hpp" picks
 // up our stub before the real OCCT-dependent header.
 #include "Format/STEP.hpp"
+#include "libslic3r/Polygon.hpp"
 #include <string>
 #include <vector>
 #include <functional>
@@ -12,7 +13,6 @@
 namespace Slic3r {
 class PerimeterGenerator;
 namespace Arachne { struct ExtrusionLine; }
-class Polygon;
 
 // STEP — excluded (needs OCCT). Implement Step class methods declared in stub header.
 Step::Step(std::string, ImportStepProgressFn, StepIsUtf8Fn) {}
@@ -28,7 +28,10 @@ bool load_step(const char*, Model*, bool&,
 // FuzzySkin — excluded (needs libnoise)
 namespace Feature { namespace FuzzySkin {
 void apply_fuzzy_skin(Arachne::ExtrusionLine*, const PerimeterGenerator&, bool) {}
-void apply_fuzzy_skin(const Polygon&, const PerimeterGenerator&, unsigned long, bool) {}
+// Must match Feature/FuzzySkin/FuzzySkin.hpp exactly, including the Polygon
+// return: a void stub left callers reading an unwritten return slot (undefined
+// behaviour on ARM64; a signature-mismatch trap on wasm). No fuzz = identity.
+Polygon apply_fuzzy_skin(const Polygon& polygon, const PerimeterGenerator&, size_t, bool) { return polygon; }
 void group_region_by_fuzzify(PerimeterGenerator&) {}
 } } // namespace Feature::FuzzySkin
 

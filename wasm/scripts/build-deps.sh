@@ -61,9 +61,11 @@ dep_eigen() {
     cp -r "$WORK/eigen/Eigen" "$WORK/eigen/unsupported" "$OUT/eigen/include/"
 }
 dep_cgal() {
-    fetch_tar https://github.com/CGAL/cgal/releases/download/v5.6/CGAL-5.6.tar.xz CGAL-5.6
-    mkdir -p "$OUT/cgal/include"
-    cp -r "$WORK/CGAL-5.6/include/CGAL" "$OUT/cgal/include/"
+    # 5.6.2 (Android: 5.6) — the bug-fix releases make CGAL's BGL iterators
+    # compile with recent clang; no API changes within 5.6.x.
+    fetch_tar https://github.com/CGAL/cgal/releases/download/v5.6.2/CGAL-5.6.2.tar.xz CGAL-5.6.2
+    rm -rf "$OUT/cgal/include"; mkdir -p "$OUT/cgal/include"
+    cp -r "$WORK/CGAL-5.6.2/include/CGAL" "$OUT/cgal/include/"
 }
 dep_cereal() {
     fetch_git https://github.com/USCiLab/cereal.git v1.3.2 cereal

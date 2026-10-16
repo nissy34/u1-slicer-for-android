@@ -1,54 +1,104 @@
 # =============================================================================
 # WASM spike — build the Android app's slicing engine (libslic3r + sapil core)
-# with Emscripten. See wasm/README.md.
+# outside Android. See wasm/README.md.
 #
+# WebAssembly (the spike):
 #   source <emsdk>/emsdk_env.sh
 #   wasm/scripts/build-deps.sh
 #   emcmake cmake -S wasm -B wasm/build/engine -G Ninja -DCMAKE_BUILD_TYPE=Release
-#   cmake --build wasm/build/engine
+#   cmake --build wasm/build/engine            # -> u1slicer.js + u1slicer.wasm
+#
+# Native host reference (same engine, system packages, 64-bit):
+#   cmake -S wasm -B wasm/build/host -G Ninja -DCMAKE_BUILD_TYPE=Release
+#   cmake --build wasm/build/host              # -> u1slicer-host
 # =============================================================================
 cmake_minimum_required(VERSION 3.22)
 project(u1slicer_wasm LANGUAGES C CXX)
 
-if(NOT EMSCRIPTEN)
-    message(FATAL_ERROR "Configure with emcmake (Emscripten toolchain)")
-endif()
-
 set(APP_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../app/src/main/cpp")
-set(EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/deps" CACHE PATH "Output of wasm/scripts/build-deps.sh")
 set(SAPIL_WASM_STUB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/stubs")
 set(SLICER_BACKEND "orca" CACHE STRING "" FORCE)
+set(SAPIL_STANDALONE ON)
 
-# Must match wasm/scripts/build-deps.sh: every object in the link shares one
-# exception model and the shared-memory (pthread) ABI.
-add_compile_options(-pthread -fwasm-exceptions)
-add_link_options(-pthread -fwasm-exceptions)
+if(EMSCRIPTEN)
+    set(EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/deps" CACHE PATH "Output of wasm/scripts/build-deps.sh")
+    set(DEP_LIB_ARCH wasm32)
+    # Must match wasm/scripts/build-deps.sh: every object in the link shares one
+    # exception model and the shared-memory (pthread) ABI.
+    add_compile_options(-pthread -fwasm-exceptions)
+    add_link_options(-pthread -fwasm-exceptions)
+    # wasm32 has a 32-bit size_t. Orca initialises size_t sentinels from
+    # numeric_limits<coord_t /* int64 */>::max() (GCode.hpp LayerResult); the
+    # value truncates to SIZE_MAX, which is still the "no layer" sentinel. Clang
+    # makes that narrowing a hard error by default; keep it a warning.
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-c++11-narrowing>)
+    # Emscripten's clang is much newer than NDK 26's clang 17 and rejects
+    # `x.template foo` without an argument list in Boost.QVM / CGAL headers.
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-template-arg-list-after-template-kw>)
+    # WebAssembly cannot change the FPU rounding mode, which CGAL's interval
+    # arithmetic (the filter behind every Epick predicate) relies on. Without
+    # this, NDEBUG builds silently compute unsound intervals — CGAL's own
+    # self-test "-CGAL_IA_MUL(-1.1, 10.1) != CGAL_IA_MUL(1.1, 10.1)" fails —
+    # and VoronoiUtilsCgal's planarity check feeds Arachne a broken diagram
+    # (wild-pointer crash in SkeletalTrapezoidation on 3DBenchy). CGAL's
+    # supported fallback widens each bound by one ulp via nextafter().
+    add_compile_definitions(CGAL_ALWAYS_ROUND_TO_NEAREST=1)
+else()
+    # Host reference build: deps come from the system (Ubuntu: libboost-all-dev
+    # libtbb-dev libgmp-dev libmpfr-dev libcgal-dev libnlopt-cxx-dev
+    # libexpat1-dev libpng-dev libjpeg-dev libeigen3-dev nlohmann-json3-dev
+    # libcereal-dev). EXTERN_DIR only has to exist for the include/link paths.
+    set(EXTERN_DIR "${CMAKE_CURRENT_BINARY_DIR}/no-extern" CACHE PATH "")
+    set(DEP_LIB_ARCH ${CMAKE_SYSTEM_PROCESSOR})
+    include_directories(/usr/include/eigen3)
+    # Distro Boost is shared; the engine otherwise assumes static Boost.Log.
+    add_compile_definitions(BOOST_LOG_DYN_LINK=1)
+endif()
 
 # Engine: identical source lists / defines to the Android .so; the shared
-# CMakeLists stops before its JNI target when EMSCRIPTEN is set.
+# CMakeLists stops before its JNI target when SAPIL_STANDALONE is set.
 add_subdirectory(${APP_CPP_DIR} engine)
 
+# libslic3r links its deps by bare name (-lboost_log, -ltbb, ...); the search
+# paths are directory-scoped in the engine CMakeLists, so repeat them here.
+foreach(dep boost tbb gmp mpfr zlib expat nlopt libpng libjpeg)
+    link_directories("${EXTERN_DIR}/${dep}/lib/${DEP_LIB_ARCH}")
+endforeach()
+
 # sapil core (no JNI). Kotlin-facing sapil_config/progress/bambu_* + the JNI
-# entry points in slicer_wrapper.cpp are replaced by src/wasm_api.cpp.
-add_executable(u1slicer
+# entry points in slicer_wrapper.cpp are replaced by src/wasm_api.cpp
+# (wasm) / src/host_cli.cpp (native).
+set(SAPIL_CORE_SOURCES
     ${APP_CPP_DIR}/src/sapil_model.cpp
     ${APP_CPP_DIR}/src/sapil_print.cpp
     ${APP_CPP_DIR}/src/sapil_arrange.cpp
     ${APP_CPP_DIR}/src/sapil_gcode.cpp
     ${APP_CPP_DIR}/src/sapil_diagnostics.cpp
     ${APP_CPP_DIR}/src/sapil_bambu_snapshot.cpp
-    src/wasm_api.cpp
 )
+if(EMSCRIPTEN)
+    set(TARGET u1slicer)
+    add_executable(${TARGET} ${SAPIL_CORE_SOURCES} src/wasm_api.cpp)
+else()
+    set(TARGET u1slicer-host)
+    add_executable(${TARGET} ${SAPIL_CORE_SOURCES} src/host_cli.cpp)
+endif()
+
 # The JNI target inherits the engine directory's defines / include dirs /
 # force-included compat header; mirror them so sapil compiles identically.
 get_directory_property(ENGINE_DEFS DIRECTORY ${APP_CPP_DIR} COMPILE_DEFINITIONS)
 get_directory_property(ENGINE_INCS DIRECTORY ${APP_CPP_DIR} INCLUDE_DIRECTORIES)
 get_directory_property(ENGINE_OPTS DIRECTORY ${APP_CPP_DIR} COMPILE_OPTIONS)
-target_compile_definitions(u1slicer PRIVATE ${ENGINE_DEFS} SAPIL_HAS_JNI=0)
-target_include_directories(u1slicer PRIVATE ${APP_CPP_DIR}/include ${APP_CPP_DIR}/src ${ENGINE_INCS})
-target_compile_options(u1slicer PRIVATE ${ENGINE_OPTS})
-target_link_libraries(u1slicer PRIVATE libslic3r embind)
+target_compile_definitions(${TARGET} PRIVATE ${ENGINE_DEFS} SAPIL_HAS_JNI=0)
+target_include_directories(${TARGET} PRIVATE ${APP_CPP_DIR}/include ${APP_CPP_DIR}/src ${ENGINE_INCS})
+target_compile_options(${TARGET} PRIVATE ${ENGINE_OPTS})
+target_link_libraries(${TARGET} PRIVATE libslic3r)
 
+if(NOT EMSCRIPTEN)
+    return()
+endif()
+
+target_link_libraries(u1slicer PRIVATE embind)
 set_target_properties(u1slicer PROPERTIES SUFFIX ".js")
 target_link_options(u1slicer PRIVATE
     -sMODULARIZE=1
@@ -61,3 +111,8 @@ target_link_options(u1slicer PRIVATE
     -sSTACK_SIZE=8MB
     -sPTHREAD_POOL_SIZE=0
 )
+option(U1SLICER_WASM_DEBUG "Runtime assertions + symbolised stacks" OFF)
+if(U1SLICER_WASM_DEBUG)
+    target_link_options(u1slicer PRIVATE -sASSERTIONS=2 --profiling-funcs
+        -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2)
+endif()
