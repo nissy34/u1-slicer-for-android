@@ -18,6 +18,16 @@ export const SITE_FILES = {
   'app-defaults.mjs': join(web, 'app-defaults.mjs'),
   'preview3d.mjs': join(web, 'preview3d.mjs'),
   'printer.mjs': join(web, 'printer.mjs'),
+  // Printer tab (wasm/web/printer/).
+  'printer/printer-tab.mjs': join(web, 'printer/printer-tab.mjs'),
+  'printer/moonraker.mjs': join(web, 'printer/moonraker.mjs'),
+  'printer/filament-library.mjs': join(web, 'printer/filament-library.mjs'),
+  'printer/slots.mjs': join(web, 'printer/slots.mjs'),
+  'printer/gcode-summary.mjs': join(web, 'printer/gcode-summary.mjs'),
+  'printer/printer.css': join(web, 'printer/printer.css'),
+  // The app's bundled OpenPrintTag filament library (F96) and its licence notice.
+  'filament_library.json': join(repo, 'app/src/main/assets/filament_library.json'),
+  'filament_library.NOTICE.txt': join(repo, 'app/src/main/assets/filament_library.NOTICE.txt'),
   'gcode-preview.js': join(web, 'gcode-preview.js'),
   'gcode-tool-remap.js': join(web, 'gcode-tool-remap.js'),
   'slicer-worker.js': join(web, 'slicer-worker.js'),

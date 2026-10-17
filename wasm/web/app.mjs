@@ -279,6 +279,8 @@ function onSliced({ result, gcode, preview: p, heapMB, ms }) {
   $('layer').value = $('layer').max;
   $('layer').oninput();
   setTab('gcode');
+  // Hand the result to the Printer tab (printer/printer-tab.mjs): file colour i prints with T<mapping[i]>.
+  dispatchEvent(new CustomEvent('u1:sliced', { detail: { blob: gcodeBlob, name: gcodeName, modelName: $('file').files[0]?.name ?? gcodeName, toolMap: mapping.slice() } }));
 }
 
 $('download').onclick = () => {
