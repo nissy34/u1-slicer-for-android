@@ -12,12 +12,10 @@
 //   * CORS — Moonraker must list the page's origin in [authorization]
 //     cors_domains, e.g. `cors_domains: https://*.pages.dev  http://localhost:*`.
 
-export function normalizePrinterUrl(input) {
-  let url = String(input || '').trim();
-  if (!url) return '';
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
-  return url.replace(/\/+$/, '');
-}
+import { normalizeUrl } from './printer/moonraker.mjs';
+
+// The app's MoonrakerClient.normalizeUrl: http:// and Moonraker's :7125 when no port is given.
+export const normalizePrinterUrl = normalizeUrl;
 
 function headers(apiKey) {
   return apiKey ? { 'X-Api-Key': apiKey } : {};

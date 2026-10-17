@@ -13,7 +13,8 @@
 //   <- { type: 'scene', id, summary, mesh?, ms? }       model state (+ preview mesh when geometry changed)
 //   <- { type: 'progress', pct, stage }
 //   <- { type: 'log', line }
-//   <- { type: 'done', id, result, gcode: ArrayBuffer, preview, heapMB, ms, pauses }
+//   <- { type: 'done', id, result, gcode: ArrayBuffer, preview, heapMB, ms, pauses, toolMap }
+//      toolMap[i] = the tool file filament i prints with in `gcode` (the export mapping; null = identity)
 //   <- { type: 'error', id, message }
 // ?engine=step selects the larger engine build with STEP import (OCCT). The
 // query string is part of self.location, so engine pthreads (which re-run
@@ -113,7 +114,7 @@ if (self.name !== 'em-pthread') {
       const preview = self.parseGcodePreview(text);
       const gcode = new TextEncoder().encode(text).buffer;
       postMessage({
-        type: 'done', id, result: out.result, gcode, preview, pauses: out.layerToolPauses,
+        type: 'done', id, result: out.result, gcode, preview, pauses: out.layerToolPauses, toolMap: s.resolveExportMapping(),
         heapMB: s.engine.heapBytes() / 2 ** 20, ms: performance.now() - t0, summary: s.summary(),
       }, [gcode, preview.positions.buffer, preview.features.buffer, preview.tools.buffer,
         preview.layerEnds.buffer, preview.layerZ.buffer]);

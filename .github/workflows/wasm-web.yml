@@ -13,7 +13,7 @@ name: Web slicer (WASM) build + Cloudflare Pages
 
 on:
   push:
-    branches: [main, claude/wasm-spike, claude/wasm-3mf-pipeline]
+    branches: [main, claude/wasm-spike, claude/wasm-3mf-pipeline, claude/wasm-printer-tab]
     paths:
       - 'wasm/**'
       - 'app/src/main/cpp/**'
@@ -162,6 +162,12 @@ jobs:
           node smoke-test.mjs ../test-data/screw.step ../build/smoke-step.png
           SMOKE_PLATE=3 node smoke-test.mjs "../../app/src/androidTest/assets/Dragon Scale infinity.3mf" ../build/smoke-3mf.png
 
+      # Printer tab against the mock Moonraker (test/mock-moonraker.mjs) — never a
+      # real printer. Also slices a model and prints it through the print screen.
+      - name: Printer tab end-to-end (mock Moonraker)
+        working-directory: wasm/web
+        run: node printer-e2e.mjs ../build/printer-e2e --model ../../app/src/androidTest/assets/tetrahedron.stl
+
       - uses: actions/upload-artifact@v4
         with:
           name: u1-web-slicer-site
@@ -170,6 +176,7 @@ jobs:
             wasm/build/smoke.png
             wasm/build/smoke-step.png
             wasm/build/smoke-3mf.png
+            wasm/build/printer-e2e/*.png
 
       - name: Deploy to Cloudflare Pages
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''

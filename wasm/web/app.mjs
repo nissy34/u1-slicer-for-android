@@ -556,7 +556,7 @@ $('slice').onclick = async () => {
   }
 };
 
-function onSliced({ result, gcode, preview: p, heapMB, ms, pauses }) {
+function onSliced({ result, gcode, preview: p, heapMB, ms, pauses, toolMap }) {
   preview = p;
   gcodeBlob = new Blob([gcode], { type: 'text/plain' });
   $('progress').value = 100;
@@ -581,6 +581,9 @@ function onSliced({ result, gcode, preview: p, heapMB, ms, pauses }) {
   $('layer').value = $('layer').max;
   $('layer').oninput();
   setTab('gcode');
+  // Hand the result to the Printer tab (printer/printer-tab.mjs): the G-code is already exported to
+  // slots (PrintTimeRemap), so file filament i prints with T<toolMap[i]>; null = identity.
+  dispatchEvent(new CustomEvent('u1:sliced', { detail: { blob: gcodeBlob, name: gcodeName, modelName: $('file').files[0]?.name ?? gcodeName, toolMap: toolMap ?? null } }));
 }
 
 $('download').onclick = () => {
