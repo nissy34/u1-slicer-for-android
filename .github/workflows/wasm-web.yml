@@ -13,7 +13,7 @@ name: Web slicer (WASM) build + Cloudflare Pages
 
 on:
   push:
-    branches: [main, claude/wasm-spike, claude/wasm-printer-tab]
+    branches: [main, claude/wasm-spike, claude/wasm-3mf-pipeline, claude/wasm-printer-tab]
     paths:
       - 'wasm/**'
       - 'app/src/main/cpp/**'
@@ -135,12 +135,32 @@ jobs:
           npm test
           node package.mjs
 
+      - name: 3MF pipeline smoke test (Node)
+        # The app's pipeline (sanitize -> embed -> slice -> header patches ->
+        # thumbnails -> slot export) on a dual-colour Bambu 3MF, mapped to E3+E4.
+        run: |
+          echo '{"colorMapping":[2,3]}' > /tmp/map.json
+          node wasm/node/pipeline-slice.mjs app/src/androidTest/assets/calib-cube-10-dual-colour-merged.3mf /tmp/cc.gcode /tmp/map.json
+          grep -q '^PRINT_START' /tmp/cc.gcode
+          grep -q '^; thumbnail begin 300x300' /tmp/cc.gcode
+          grep -qx 'T2' /tmp/cc.gcode && grep -qx 'T3' /tmp/cc.gcode
+          ! grep -qx 'T0' /tmp/cc.gcode
+
+      # The quicker instrumented-test ports (~13 min); `npm run test:engine` runs all (~55 min).
+      - name: Engine integration tests
+        working-directory: wasm/web
+        run: |
+          node --test --test-concurrency=1 test-engine/fixture-harness.test.mjs \
+            test-engine/bambu-pipeline-integration.test.mjs test-engine/profile-embedder-integration.test.mjs \
+            test-engine/negative-volume-preservation.test.mjs
+
       - name: Browser smoke test (Chromium)
         working-directory: wasm/web
         run: |
           npx playwright install --with-deps chromium
           node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl ../build/smoke.png
           node smoke-test.mjs ../test-data/screw.step ../build/smoke-step.png
+          SMOKE_PLATE=3 node smoke-test.mjs "../../app/src/androidTest/assets/Dragon Scale infinity.3mf" ../build/smoke-3mf.png
 
       # Printer tab against the mock Moonraker (test/mock-moonraker.mjs) — never a
       # real printer. Also slices a model and prints it through the print screen.
@@ -155,6 +175,7 @@ jobs:
             wasm/build/site.zip
             wasm/build/smoke.png
             wasm/build/smoke-step.png
+            wasm/build/smoke-3mf.png
             wasm/build/printer-e2e/*.png
 
       - name: Deploy to Cloudflare Pages

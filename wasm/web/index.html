@@ -27,6 +27,7 @@
     --viewport: #14171c; --grid: #4a5160;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
   header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
   header h1 { font-size: 17px; margin: 0; }
@@ -72,6 +73,20 @@
   .colour-rows { display: grid; gap: 8px; }
   .colour-row { display: grid; grid-template-columns: 22px 1fr 110px; gap: 10px; align-items: center; font-size: 13px; }
   .swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
+  .slot-rows { display: grid; gap: 8px; }
+  .slot-row { display: grid; grid-template-columns: 30px 38px 1fr 76px; gap: 8px; align-items: center; font-size: 13px; }
+  .slot-row input[type=color] { width: 38px; height: 30px; padding: 2px; }
+  details.section { border-top: 1px solid var(--border); padding: 6px 0; }
+  details.section > summary { font-size: 13px; color: var(--text); padding: 4px 0; }
+  details.section > summary .count { color: var(--accent); font-size: 11px; margin-left: 6px; }
+  .ov-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 0; font-size: 13px; }
+  .ov-row.sub { padding-left: 14px; }
+  .ov-row .file { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+  .ov-row .val { grid-column: 1 / -1; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .seg button { border-radius: 0; padding: 3px 9px; font-size: 11px; background: var(--surface-2); color: var(--text); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+  .ov-row .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 2px; }
 </style>
 <link rel="stylesheet" href="printer/printer.css">
 </head>
@@ -87,9 +102,19 @@
       <h2>Model</h2>
       <div class="grid2">
         <label class="span2">STL, 3MF or OBJ<input id="file" type="file" accept=".stl,.3mf,.obj"></label>
-        <label>3MF plate<input id="plate" type="number" min="0" value="0" title="0 = all plates"></label>
+        <label class="span2" id="plateWrap" hidden>Plate<select id="plate"></select></label>
       </div>
       <p class="status" id="modelStatus">Starting engine…</p>
+    </section>
+
+    <section class="card">
+      <h2>Filament slots</h2>
+      <div id="slotRows" class="slot-rows"></div>
+      <div class="grid2" style="margin-top:10px">
+        <label>Build plate<select id="plateType"></select></label>
+        <label>Bed (°C)<input id="bed_temp" type="number" readonly title="From the build plate and material; override under Settings → Temperature"></label>
+      </div>
+      <p class="note">Each U1 slot has its own material and nozzle temperature (blank = the material's default).</p>
     </section>
 
     <section class="card" id="coloursCard" hidden>
@@ -98,31 +123,41 @@
       <p class="note" id="coloursNote"></p>
     </section>
 
+    <section class="card" id="arrangeCard" hidden>
+      <h2>Arrange</h2>
+      <div class="grid2">
+        <label>Copies<input id="copies" type="number" min="1" max="16" value="1"></label>
+        <label>Scale (%)<input id="scale" type="number" min="1" max="1000" step="1" value="100"></label>
+        <label>Rotate X (°)<input id="rotX" type="number" step="15" value="0"></label>
+        <label>Rotate Y (°)<input id="rotY" type="number" step="15" value="0"></label>
+        <label>Rotate Z (°)<input id="rotZ" type="number" step="15" value="0"></label>
+        <label>Add to bed<input id="addFile" type="file" accept=".stl,.3mf,.obj"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="autoArrange" class="secondary">Auto-arrange</button>
+        <button id="autoOrient" class="secondary">Auto-orient</button>
+        <button id="split" class="secondary">Split to objects</button>
+      </div>
+      <div id="objectPanel" class="grid2" style="margin-top:10px" hidden>
+        <label class="span2">Selected object<select id="objectSelect"></select></label>
+        <label>X (mm)<input id="objX" type="number" step="1"></label>
+        <label>Y (mm)<input id="objY" type="number" step="1"></label>
+        <label>Rotate Z (°)<input id="objRotZ" type="number" step="15"></label>
+        <label>Scale (%)<input id="objScale" type="number" min="1" step="1"></label>
+        <div class="row span2"><button id="duplicate" class="secondary">Duplicate</button></div>
+      </div>
+      <div id="towerPanel" class="grid2" style="margin-top:10px" hidden>
+        <label>Prime tower X<input id="towerX" type="number" step="1"></label>
+        <label>Prime tower Y<input id="towerY" type="number" step="1"></label>
+      </div>
+      <p class="note" id="arrangeNote">Drag the model or the grey prime-tower box on the bed to move them.</p>
+    </section>
+
     <section class="card">
       <h2>Settings</h2>
-      <div class="grid2">
-        <label>Material<select id="material"></select></label>
-        <label>Build plate<select id="plateType"></select></label>
-        <label>Nozzle (°C)<input id="nozzle_temp" type="number"></label>
-        <label>Bed (°C)<input id="bed_temp" type="number"></label>
-        <label>Layer height
-          <select id="layer_height">
-            <option value="0">From file (else 0.20)</option><option>0.08</option><option>0.12</option><option>0.16</option>
-            <option>0.20</option><option>0.24</option><option>0.28</option>
-          </select>
-        </label>
-        <label>Walls<input id="perimeters" type="number" min="1" max="10" value="2"></label>
-        <label>Infill (%)<input id="fill_density" type="number" min="0" max="100" value="15"></label>
-        <label>Infill pattern
-          <select id="fill_pattern">
-            <option>gyroid</option><option>grid</option><option>rectilinear</option><option>honeycomb</option>
-            <option>cubic</option><option>lightning</option><option>crosshatch</option>
-          </select>
-        </label>
-        <label>Supports<select id="support"><option value="">Off</option><option value="normal">Normal</option><option value="tree">Tree</option></select></label>
-        <label>Brim width (mm)<input id="brim_width" type="number" min="0" max="20" step="1" value="0"></label>
-        <label class="check span2"><input id="wipe_tower_enabled" type="checkbox"> Prime tower (multi-colour)</label>
-      </div>
+      <p class="note" style="margin-top:0">Each setting keeps the file's value (<b>File</b>), uses Orca's default (<b>Orca</b>), or your value (<b>Override</b>) — the app's Prepare-screen overrides.</p>
+      <div id="settingsSections"></div>
+      <div class="row" style="margin-top:8px"><button id="resetOverrides" class="secondary" hidden>Reset all overrides</button></div>
       <div class="row" style="margin-top:12px">
         <button id="slice" disabled>Slice</button>
         <progress id="progress" max="100" value="0"></progress>

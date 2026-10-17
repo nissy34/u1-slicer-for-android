@@ -1,5 +1,6 @@
-// three.js viewer for the demo: the U1 bed, the loaded model (engine Prepare
-// mesh, coloured per extruder slot) and the sliced G-code (extrusion lines,
+// three.js viewer for the page: the U1 bed, the loaded model (engine Prepare
+// mesh per object, coloured per extruder slot, draggable on the bed together
+// with the prime-tower footprint) and the sliced G-code (extrusion lines,
 // coloured by feature or by tool, clipped to a layer range).
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -45,7 +46,9 @@ export class Preview3D {
 
     this.bed = this.#makeBed();
     this.scene.add(this.bed);
-    this.modelMesh = null;
+    this.modelGroup = null;
+    this.objectMeshes = [];
+    this.towerMesh = null;
     this.gcodeLines = null;
     this.gcode = null;
 
@@ -109,30 +112,148 @@ export class Preview3D {
     this.fitBounds = bounds;
   }
 
-  /** mesh: { positions: Float32Array (9/tri), extruders: Uint8Array } */
-  showModel(mesh, slotColors = SLOT_COLORS) {
-    this.#clear(this.modelMesh);
-    this.modelMesh = null;
+  #clearModel() {
+    if (!this.modelGroup) return;
+    this.scene.remove(this.modelGroup);
+    this.modelGroup.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+    this.modelGroup = null;
+    this.objectMeshes = [];
+    this.towerMesh = null;
+  }
+
+  /**
+   * mesh: { positions: Float32Array (9/tri), extruders: Uint8Array,
+   *         objectTriangles?: Int32Array (per engine object, in mesh order), modifierStart? }
+   * opts.tower: { x, y, w, d, h } prime-tower footprint (lower-left, mm) or null
+   * opts.reframe: re-fit the camera (new model) — edits keep the user's view
+   */
+  showModel(mesh, slotColors = SLOT_COLORS, { tower = null, reframe = true } = {}) {
+    this.#clearModel();
+    this.modelGroup = new THREE.Group();
+    this.scene.add(this.modelGroup);
     const tris = mesh.extruders.length;
-    if (!tris) return;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
-    const col = new Float32Array(tris * 9);
     const palette = slotColors.map((c) => new THREE.Color(c));
-    for (let t = 0; t < tris; t++) {
-      const c = palette[mesh.extruders[t] % palette.length];
+    // One mesh per engine object so objects can be picked and dragged; the
+    // trailing negative-volume block (F95) is drawn translucent like the app.
+    const modelTris = mesh.modifierStart >= 0 ? mesh.modifierStart : tris;
+    const counts = mesh.objectTriangles?.length ? [...mesh.objectTriangles] : [modelTris];
+    let start = 0;
+    counts.forEach((count, objIndex) => {
+      if (count > 0) this.objectMeshes.push(this.#objectMesh(mesh, palette, start, count, objIndex));
+      start += count;
+    });
+    if (start < modelTris) this.objectMeshes.push(this.#objectMesh(mesh, palette, start, modelTris - start, -1));
+    if (modelTris < tris) {
+      const m = this.#objectMesh(mesh, [new THREE.Color('#b0b0b0')], modelTris, tris - modelTris, -1);
+      m.material.transparent = true;
+      m.material.opacity = 0.35;
+      m.material.depthWrite = false;
+      m.userData.pickable = false;
+    }
+    if (tower) this.setTower(tower);
+    const box = new THREE.Box3().setFromObject(this.modelGroup);
+    if (reframe && !box.isEmpty()) this.#frame([box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z]);
+    this.setMode('model');
+  }
+
+  #objectMesh(mesh, palette, start, count, objIndex) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions.slice(start * 9, (start + count) * 9), 3));
+    const col = new Float32Array(count * 9);
+    for (let t = 0; t < count; t++) {
+      const c = palette[mesh.extruders[start + t] % palette.length];
       for (let v = 0; v < 3; v++) col.set([c.r, c.g, c.b], t * 9 + v * 3);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.computeVertexNormals();
     geo.computeBoundingBox();
-    this.modelMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, flatShading: true,
     }));
-    this.scene.add(this.modelMesh);
-    const b = geo.boundingBox;
-    this.#frame([b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]);
-    this.setMode('model');
+    m.userData = { objIndex, pickable: objIndex >= 0 };
+    this.modelGroup.add(m);
+    return m;
+  }
+
+  /** Prime-tower footprint box ({ x, y, w, d, h }, lower-left mm), or null to hide. */
+  setTower(tower) {
+    if (this.towerMesh) {
+      this.modelGroup?.remove(this.towerMesh);
+      this.towerMesh.geometry.dispose();
+      this.towerMesh.material.dispose();
+      this.towerMesh = null;
+    }
+    if (!tower || !this.modelGroup) return;
+    const h = Math.max(tower.h, 2);
+    this.towerMesh = new THREE.Mesh(new THREE.BoxGeometry(tower.w, tower.d, h),
+      new THREE.MeshStandardMaterial({ color: 0x9e9e9e, transparent: true, opacity: 0.55, roughness: 0.9 }));
+    this.towerMesh.position.set(tower.x + tower.w / 2, tower.y + tower.d / 2, h / 2);
+    this.towerMesh.userData = { tower: true, pickable: true, w: tower.w, d: tower.d };
+    this.modelGroup.add(this.towerMesh);
+  }
+
+  /** Outline the selected object (index into the engine objects, or null). */
+  setSelected(objIndex) {
+    for (const m of this.objectMeshes) m.material.emissive?.set(m.userData.objIndex === objIndex ? 0x333333 : 0x000000);
+  }
+
+  /**
+   * Pointer drag on the bed plane. opts.canDrag(hit) -> 'object' | 'group' | 'tower' | null;
+   * opts.bounds(kind, objIndex) -> [minDx, maxDx, minDy, maxDy] limits for the move;
+   * opts.onDrop({ kind, objIndex, dx, dy }) and opts.onPick(objIndex | null) on click.
+   */
+  enableDrag(opts) {
+    const el = this.renderer.domElement;
+    const ray = new THREE.Raycaster();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const ndc = new THREE.Vector2();
+    const bedPoint = (e) => {
+      const r = el.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, this.camera);
+      return ray.ray.intersectPlane(plane, new THREE.Vector3());
+    };
+    let drag = null;
+    el.addEventListener('pointerdown', (e) => {
+      if (!this.modelGroup?.visible || e.button !== 0) return;
+      const r = el.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, this.camera);
+      const targets = this.modelGroup.children.filter((m) => m.userData.pickable);
+      const hit = ray.intersectObjects(targets, false)[0]?.object ?? null;
+      const kind = hit ? opts.canDrag(hit.userData.tower ? { tower: true } : { objIndex: hit.userData.objIndex }) : null;
+      const start = bedPoint(e);
+      if (!kind || !start) { drag = { kind: null, x: e.clientX, y: e.clientY }; return; }
+      const objIndex = hit.userData.objIndex ?? null;
+      const moving = kind === 'tower' ? [this.towerMesh] : kind === 'group' ? this.objectMeshes : this.objectMeshes.filter((m) => m.userData.objIndex === objIndex);
+      drag = { kind, objIndex, start, moving, base: moving.map((m) => m.position.clone()), limits: opts.bounds(kind, objIndex), dx: 0, dy: 0, x: e.clientX, y: e.clientY };
+      this.controls.enabled = false;
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!drag?.kind) return;
+      const p = bedPoint(e);
+      if (!p) return;
+      const [x0, x1, y0, y1] = drag.limits;
+      drag.dx = Math.min(Math.max(p.x - drag.start.x, x0), x1);
+      drag.dy = Math.min(Math.max(p.y - drag.start.y, y0), y1);
+      drag.moving.forEach((m, i) => m.position.set(drag.base[i].x + drag.dx, drag.base[i].y + drag.dy, drag.base[i].z));
+    });
+    const end = (e) => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      this.controls.enabled = true;
+      const clicked = Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4;
+      if (clicked) {
+        d.moving?.forEach((m, i) => m.position.copy(d.base[i]));
+        if (d.kind !== 'tower') opts.onPick?.(d.objIndex ?? null);
+        return;
+      }
+      if (d.kind && (d.dx || d.dy)) opts.onDrop({ kind: d.kind, objIndex: d.objIndex, dx: d.dx, dy: d.dy });
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
   }
 
   /** preview: output of parseGcodePreview(); colorBy: 'feature' | 'tool' */
@@ -172,7 +293,7 @@ export class Preview3D {
   }
 
   setMode(mode) {
-    if (this.modelMesh) this.modelMesh.visible = mode === 'model';
+    if (this.modelGroup) this.modelGroup.visible = mode === 'model';
     if (this.gcodeLines) this.gcodeLines.visible = mode === 'gcode';
   }
 }
