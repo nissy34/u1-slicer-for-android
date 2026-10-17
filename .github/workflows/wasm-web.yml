@@ -1,0 +1,192 @@
+name: Web slicer (WASM) build + Cloudflare Pages
+
+# Builds the WebAssembly engine and the static web slicer (wasm/), smoke-tests
+# it, uploads the site as an artifact and — when the Cloudflare secrets are
+# configured — deploys it to Cloudflare Pages.
+#
+# One-time Cloudflare setup (repo Settings → Secrets and variables → Actions):
+#   secrets.CLOUDFLARE_API_TOKEN   API token with "Cloudflare Pages: Edit"
+#   secrets.CLOUDFLARE_ACCOUNT_ID  your account id (dashboard sidebar)
+#   vars.CF_PAGES_PROJECT          optional project name (default u1-web-slicer)
+# Without the secrets the workflow still builds and publishes the site.zip
+# artifact, which can be drag-and-dropped into Pages → Create → Direct Upload.
+
+on:
+  push:
+    branches: [main, claude/wasm-spike, claude/wasm-3mf-pipeline, claude/wasm-printer-tab]
+    paths:
+      - 'wasm/**'
+      - 'app/src/main/cpp/**'
+      - 'app/src/main/assets/orca_profiles/**'
+      - '.github/workflows/wasm-web.yml'
+  workflow_dispatch:
+
+# Queue rather than cancel: a cancelled first run would never finish (and so
+# never cache) the ~40 min dependency build.
+concurrency:
+  group: wasm-web-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  deployments: write
+
+env:
+  EMSDK_VERSION: 6.0.12  # emcc used by the spike; deps cache is keyed on it
+  # Job-wide so the deploy step's `if:` can test for them.
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch pinned OrcaSlicer submodule (shallow)
+        run: |
+          sha=$(git ls-tree HEAD app/src/main/cpp/orcaslicer | awk '{print $3}')
+          url=$(git config -f .gitmodules submodule.app/src/main/cpp/orcaslicer.url)
+          cd app/src/main/cpp/orcaslicer
+          git init -q && git remote add origin "$url"
+          git fetch -q --depth 1 origin "$sha" && git checkout -q FETCH_HEAD
+
+      - name: Android build graph unchanged by wasm work
+        # Configure-only (no NDK): the shared native CMakeLists must generate the
+        # identical Android build as the default branch.
+        run: |
+          sudo apt-get install -y -qq ninja-build zip ccache
+          git fetch -q --depth 1 origin "${{ github.event.repository.default_branch }}"
+          wasm/scripts/check-android-cmake.sh FETCH_HEAD
+
+      - name: Install Emscripten ${{ env.EMSDK_VERSION }}
+        run: |
+          git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Restore WASM dependencies
+        id: deps-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: wasm/build/deps
+          key: wasm-deps-${{ env.EMSDK_VERSION }}-${{ hashFiles('wasm/scripts/build-deps.sh') }}
+
+      - name: Build dependencies (cache miss only)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          wasm/scripts/build-deps.sh
+          wasm/scripts/build-deps.sh occt   # STEP import (optional engine build)
+
+      # Saved immediately, so a later failing step doesn't throw the build away.
+      - name: Save WASM dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: wasm/build/deps
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
+
+      # ccache via Emscripten's compiler wrapper: two engine builds share most
+      # objects with the previous run, so later runs recompile only what changed.
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: wasm-ccache-${{ env.EMSDK_VERSION }}-${{ github.sha }}
+          restore-keys: wasm-ccache-${{ env.EMSDK_VERSION }}-
+
+      - name: Build engines (default + STEP)
+        env:
+          EM_COMPILER_WRAPPER: ccache
+          CCACHE_DIR: ${{ runner.temp }}/ccache
+          CCACHE_MAXSIZE: 3G
+          CCACHE_BASEDIR: ${{ github.workspace }}
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          emcmake cmake -S wasm -B wasm/build/engine -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build wasm/build/engine
+          emcmake cmake -S wasm -B wasm/build/engine-step -G Ninja -DCMAKE_BUILD_TYPE=Release -DU1SLICER_WITH_STEP=ON
+          cmake --build wasm/build/engine-step
+          ls -la wasm/build/engine/u1slicer.* wasm/build/engine-step/u1slicer.*
+          ccache -s | head -8
+
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: wasm-ccache-${{ env.EMSDK_VERSION }}-${{ github.sha }}
+
+      - name: Engine smoke test (Node)
+        run: |
+          node wasm/node/slice.mjs app/src/androidTest/assets/tetrahedron.stl /tmp/tetra.gcode --app-defaults
+          grep -q '^PRINT_START' /tmp/tetra.gcode
+          grep -q '^EXCLUDE_OBJECT_DEFINE' /tmp/tetra.gcode
+          U1SLICER_WASM_JS=$PWD/wasm/build/engine-step/u1slicer.js \
+            node wasm/node/slice.mjs wasm/test-data/screw.step /tmp/screw.gcode --app-defaults
+          grep -q '^PRINT_START' /tmp/screw.gcode
+
+      - name: Package site + web unit tests
+        working-directory: wasm/web
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          node package.mjs
+
+      - name: 3MF pipeline smoke test (Node)
+        # The app's pipeline (sanitize -> embed -> slice -> header patches ->
+        # thumbnails -> slot export) on a dual-colour Bambu 3MF, mapped to E3+E4.
+        run: |
+          echo '{"colorMapping":[2,3]}' > /tmp/map.json
+          node wasm/node/pipeline-slice.mjs app/src/androidTest/assets/calib-cube-10-dual-colour-merged.3mf /tmp/cc.gcode /tmp/map.json
+          grep -q '^PRINT_START' /tmp/cc.gcode
+          grep -q '^; thumbnail begin 300x300' /tmp/cc.gcode
+          grep -qx 'T2' /tmp/cc.gcode && grep -qx 'T3' /tmp/cc.gcode
+          ! grep -qx 'T0' /tmp/cc.gcode
+
+      # The quicker instrumented-test ports (~13 min); `npm run test:engine` runs all (~55 min).
+      - name: Engine integration tests
+        working-directory: wasm/web
+        run: |
+          node --test --test-concurrency=1 test-engine/fixture-harness.test.mjs \
+            test-engine/bambu-pipeline-integration.test.mjs test-engine/profile-embedder-integration.test.mjs \
+            test-engine/negative-volume-preservation.test.mjs
+
+      - name: Browser smoke test (Chromium)
+        working-directory: wasm/web
+        run: |
+          npx playwright install --with-deps chromium
+          node smoke-test.mjs ../../app/src/androidTest/assets/3DBenchy.stl ../build/smoke.png
+          node smoke-test.mjs ../test-data/screw.step ../build/smoke-step.png
+          SMOKE_PLATE=3 node smoke-test.mjs "../../app/src/androidTest/assets/Dragon Scale infinity.3mf" ../build/smoke-3mf.png
+
+      # Printer tab against the mock Moonraker (test/mock-moonraker.mjs) — never a
+      # real printer. Also slices a model and prints it through the print screen.
+      - name: Printer tab end-to-end (mock Moonraker)
+        working-directory: wasm/web
+        run: node printer-e2e.mjs ../build/printer-e2e --model ../../app/src/androidTest/assets/tetrahedron.stl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: u1-web-slicer-site
+          path: |
+            wasm/build/site.zip
+            wasm/build/smoke.png
+            wasm/build/smoke-step.png
+            wasm/build/smoke-3mf.png
+            wasm/build/printer-e2e/*.png
+
+      - name: Deploy to Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        env:
+          PROJECT: ${{ vars.CF_PAGES_PROJECT || 'u1-web-slicer' }}
+        working-directory: wasm/web
+        run: |
+          # Creates the project on first run; harmless "already exists" afterwards.
+          npx wrangler pages project create "$PROJECT" --production-branch=main || true
+          npx wrangler pages deploy ../build/site --project-name="$PROJECT" --branch="${GITHUB_REF_NAME}" \
+            --commit-hash="$GITHUB_SHA" | tee deploy.log
+          url=$(grep -Eo 'https://[^ ]+\.pages\.dev' deploy.log | tail -1)
+          echo "### Deployed: $url" >> "$GITHUB_STEP_SUMMARY"

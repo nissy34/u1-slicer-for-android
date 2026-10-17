@@ -21,6 +21,17 @@ message(STATUS "SLICER_BACKEND=${SLICER_BACKEND}")
 # dependency bundle while compiling the worktree's own native sources.
 set(EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern" CACHE PATH "Prebuilt Android dependency root")
 set(ABI_DIR "${ANDROID_ABI}")
+# Standalone (non-Android) engine builds, driven by wasm/CMakeLists.txt: the
+# WebAssembly spike (Emscripten, deps from wasm/scripts/build-deps.sh in this
+# same extern/ layout) and a native host reference build (system packages).
+# Both compile the identical engine sources; only the dependency plumbing and
+# the final (non-JNI) target differ.
+if(EMSCRIPTEN)
+    set(SAPIL_STANDALONE ON)
+    set(ABI_DIR "wasm32")
+elseif(SAPIL_STANDALONE)
+    set(ABI_DIR "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
 
 if(SLICER_BACKEND STREQUAL "orca")
     set(PRUSA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/orcaslicer")
@@ -103,6 +114,23 @@ else()
     )
 endif()
 
+if(SAPIL_STANDALONE)
+    # Stub headers that replace optional deps (openssl/md5.h) + real NLopt for
+    # libnest2d. Prepended so they shadow anything in the Android bundle.
+    # libpng/libjpeg are real libraries here (Android uses header stubs).
+    # TreeSupport3D.cpp includes sapil_diagnostics.h -> sapil.h: no JNI here.
+    add_compile_definitions(SAPIL_HAS_JNI=0)
+    list(PREPEND BUNDLED_INCLUDES ${SAPIL_WASM_STUB_DIR}
+        ${EXTERN_DIR}/nlopt/include ${EXTERN_DIR}/libpng/include ${EXTERN_DIR}/libjpeg/include)
+    foreach(dep nlopt libpng libjpeg)
+        link_directories("${EXTERN_DIR}/${dep}/lib/${ABI_DIR}")
+    endforeach()
+endif()
+
+if(SAPIL_STANDALONE AND SAPIL_WITH_STEP)
+    list(REMOVE_ITEM BUNDLED_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/extern/libslic3r_android)
+endif()
+
 # =============================================================================
 # HWASan (Hardware Address Sanitizer) — diagnostic build for memory bugs
 # Enable with: cmake -DENABLE_HWASAN=ON
@@ -162,6 +190,9 @@ include_directories("${BOOST_ROOT}/include")
 link_directories("${BOOST_ROOT}/lib/${ABI_DIR}")
 # Note: Boost-for-Android uses custom suffixes for the .a files
 set(BOOST_SUFFIX "-clang-mt-a64-1_84")
+if(SAPIL_STANDALONE)
+    set(BOOST_SUFFIX "")  # b2 --layout=system
+endif()
 set(BOOST_LIBS
     "boost_log_setup${BOOST_SUFFIX}"
     "boost_log${BOOST_SUFFIX}"
@@ -187,7 +218,9 @@ include_directories("${EXTERN_DIR}/eigen/include")
 # with defaulted move constructors that have no memory barriers on ARM64).
 # Non-shimmed headers (data structures, allocators, mutexes, task_group) fall
 # through to real TBB — they work correctly in single-threaded execution.
-include_directories(BEFORE "${EXTERN_DIR}/tbb_serial")
+# The shim is tracked in git under the source tree; do not resolve it via
+# EXTERN_DIR, which may point at an external prebuilt-deps bundle.
+include_directories(BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/extern/tbb_serial")
 include_directories("${EXTERN_DIR}/tbb/include")
 link_directories("${EXTERN_DIR}/tbb/lib/${ABI_DIR}")
 
@@ -223,6 +256,19 @@ else()
         TKOffset TKPrim TKHLR TKXCAF TKBinXCAF TKXmlXCAF TKBin TKXml
         TKShHealing TKExpress TKRWMesh TKXMesh TKStd TKBinL TKXmlL
     )
+endif()
+
+if(SAPIL_STANDALONE AND NOT SAPIL_WITH_STEP)
+    # STEP/SVG import (the only OCCT users) are already excluded; nothing left
+    # in the FFF path needs OCCT, so standalone builds skip the 1 GB dependency.
+    set(OCCT_LIBS "")
+elseif(SAPIL_STANDALONE)
+    # OCCT 7.6 toolkit names (Orca's own pin), DataExchange subset.
+    set(OCCT_LIBS
+        TKXDESTEP TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKXCAF TKXSBase TKVCAF TKCAF TKLCAF
+        TKCDF TKV3d TKService TKMesh TKBO TKPrim TKHLR TKShHealing TKTopAlgo TKGeomAlgo
+        TKBRep TKGeomBase TKG3d TKG2d TKMath TKernel)
+    add_compile_definitions(SAPIL_WITH_STEP=1)
 endif()
 
 # --- Clipper2 ---
@@ -1030,6 +1076,29 @@ if(SLICER_BACKEND STREQUAL "orca")
     )
 endif()
 
+if(SAPIL_STANDALONE AND SAPIL_WITH_STEP)
+    # Real STEP import (OCCT 7.6, wasm/scripts/build-deps.sh occt) instead of the
+    # Android stub. The stub header is dropped from BUNDLED_INCLUDES where that
+    # list is defined, so every target sees one Step class.
+    list(APPEND LIBSLIC3R_CORE_SOURCES ${LIBSLIC3R_DIR}/Format/STEP.cpp)
+endif()
+
+if(SAPIL_STANDALONE)
+    # Patched copies of engine sources (see wasm/CMakeLists.txt). Each copy lives
+    # outside its original directory, so give it that directory for its
+    # file-relative #includes.
+    foreach(rel ${SAPIL_SOURCE_OVERRIDES})
+        list(FIND LIBSLIC3R_CORE_SOURCES "${PRUSA_DIR}/${rel}" idx)
+        if(idx GREATER -1)
+            list(REMOVE_AT LIBSLIC3R_CORE_SOURCES ${idx})
+            list(INSERT LIBSLIC3R_CORE_SOURCES ${idx} "${SAPIL_PATCHED_DIR}/${rel}")
+            get_filename_component(orig_dir "${PRUSA_DIR}/${rel}" DIRECTORY)
+            set_source_files_properties("${SAPIL_PATCHED_DIR}/${rel}" PROPERTIES INCLUDE_DIRECTORIES "${orig_dir}")
+            message(STATUS "libslic3r: patched ${rel}")
+        endif()
+    endforeach()
+endif()
+
 add_library(libslic3r STATIC ${LIBSLIC3R_CORE_SOURCES})
 
 target_compile_definitions(libslic3r PUBLIC
@@ -1038,7 +1107,7 @@ target_compile_definitions(libslic3r PUBLIC
 )
 
 target_include_directories(libslic3r PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/libslic3r_android
+    $<$<NOT:$<BOOL:${SAPIL_WITH_STEP}>>:${CMAKE_CURRENT_SOURCE_DIR}/extern/libslic3r_android>
     ${PRUSA_DIR}/src
     ${LIBSLIC3R_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -1074,10 +1143,29 @@ if(SLICER_BACKEND STREQUAL "orca")
         gmpxx
         gmp
         mpfr
-        Clipper2
+        $<$<NOT:$<BOOL:${SAPIL_STANDALONE}>>:Clipper2>
+        $<$<BOOL:${SAPIL_STANDALONE}>:nlopt>
+        $<$<BOOL:${SAPIL_STANDALONE}>:png>
+        $<$<BOOL:${SAPIL_STANDALONE}>:jpeg>
         z
         expat
     )
+
+    if(SAPIL_STANDALONE)
+        # Snapmaker-U1 engine patches in the Orca fork are gated on __ANDROID__
+        # (F71 EXCLUDE_OBJECT_DEFINE for every gcode flavor, serial-shim-safe
+        # TBB thread naming, FaceDetector skip). Define it for exactly those
+        # translation units so wasm G-code matches the Android build.
+        set_source_files_properties(
+            ${LIBSLIC3R_DIR}/GCode.cpp
+            ${LIBSLIC3R_DIR}/Thread.cpp
+            ${LIBSLIC3R_DIR}/Model.cpp
+            PROPERTIES COMPILE_DEFINITIONS "__ANDROID__=1")
+        # Platform.cpp static_asserts on unknown OSes; Emscripten is POSIX enough
+        # to take the Linux branch (its /proc/version probe just fails).
+        set_source_files_properties(${LIBSLIC3R_DIR}/Platform.cpp
+            PROPERTIES COMPILE_DEFINITIONS "__linux__=1")
+    endif()
 else()
     target_link_libraries(libslic3r PRIVATE
         admesh
@@ -1109,6 +1197,11 @@ else()
         z
         expat
     )
+endif()
+
+if(SAPIL_STANDALONE)
+    # wasm/CMakeLists.txt builds its own non-JNI entry points on top of libslic3r.
+    return()
 endif()
 
 # =============================================================================

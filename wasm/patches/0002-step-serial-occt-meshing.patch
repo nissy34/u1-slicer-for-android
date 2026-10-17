@@ -1,0 +1,39 @@
+u1-wasm: mesh STEP solids with OCCT's serial mesher.
+
+BRepMesh_IncrementalMesh(..., isInParallel=true) starts OSD thread-pool threads
+and blocks joining them. In a browser, a new pthread's Web Worker only starts
+once the creating thread yields to its event loop, so the join never returns
+and STEP import hangs (Node starts workers independently, so the CLI worked).
+The tessellation itself is unchanged.
+
+diff --git a/src/libslic3r/Format/STEP.cpp b/src/libslic3r/Format/STEP.cpp
+index 5105d26..4c635e0 100644
+--- a/src/libslic3r/Format/STEP.cpp
++++ b/src/libslic3r/Format/STEP.cpp
+@@ -287,7 +287,7 @@ bool load_step(const char *path, Model *model, bool& is_cancel,
+     stl.resize(namedSolids.size());
+     tbb::parallel_for(tbb::blocked_range<size_t>(0, namedSolids.size()), [&](const tbb::blocked_range<size_t> &range) {
+         for (size_t i = range.begin(); i < range.end(); i++) {
+-            BRepMesh_IncrementalMesh mesh(namedSolids[i].solid, linear_defletion, false, angle_defletion, true);
++            BRepMesh_IncrementalMesh mesh(namedSolids[i].solid, linear_defletion, false, angle_defletion, /*isInParallel=*/false); // u1-wasm: see patch 0002
+             // BBS: calculate total number of the nodes and triangles
+             int aNbNodes     = 0;
+             int aNbTriangles = 0;
+@@ -470,7 +470,7 @@ unsigned int Step::get_triangle_num(double linear_defletion, double angle_deflet
+         IMeshTools_Parameters param;
+         param.Deflection = linear_defletion;
+         param.Angle = angle_defletion;
+-        param.InParallel = true;
++        param.InParallel = false; // u1-wasm: see patch 0002
+         for (int i = 0; i < m_name_solids.size(); ++i) {
+             BRepMesh_IncrementalMesh mesh(m_name_solids[i].solid, param, progress->Start());
+             for (TopExp_Explorer anExpSF(m_name_solids[i].solid, TopAbs_FACE); anExpSF.More(); anExpSF.Next()) {
+@@ -499,7 +499,7 @@ unsigned int Step::get_triangle_num_tbb(double linear_defletion, double angle_de
+     [&](const tbb::blocked_range<size_t>& range) {
+         for (size_t i = range.begin(); i < range.end(); i++) {
+             unsigned int solids_tri_num = 0;
+-            BRepMesh_IncrementalMesh mesh(m_name_solids[i].solid, linear_defletion, false, angle_defletion, true);
++            BRepMesh_IncrementalMesh mesh(m_name_solids[i].solid, linear_defletion, false, angle_defletion, /*isInParallel=*/false); // u1-wasm: see patch 0002
+             for (TopExp_Explorer anExpSF(m_name_solids[i].solid, TopAbs_FACE); anExpSF.More(); anExpSF.Next()) {
+                 TopLoc_Location aLoc;
+                 Handle(Poly_Triangulation) aTriangulation = BRep_Tool::Triangulation(TopoDS::Face(anExpSF.Current()), aLoc);

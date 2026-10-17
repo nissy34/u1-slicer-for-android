@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U1 Web Slicer</title>
+<meta name="description" content="Snapmaker U1 slicer running entirely in the browser (WebAssembly build of the Android app's Orca engine).">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+<style>
+  :root {
+    --bg: #f4f6fb; --surface: #ffffff; --surface-2: #eef1f7; --text: #191c20; --muted: #5b6270;
+    --accent: #1565c0; --accent-text: #ffffff; --border: #d8dde7; --error: #b3261e; --ok: #1b7a3d;
+    --viewport: #e9edf4; --grid: #9aa3b2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --surface: #191c22; --surface-2: #22262e; --text: #e3e6ec; --muted: #9ba2af;
+      --accent: #8ab4f8; --accent-text: #0b1d3a; --border: #2f343e; --error: #f2b8b5; --ok: #7dd89c;
+      --viewport: #14171c; --grid: #4a5160;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1115; --surface: #191c22; --surface-2: #22262e; --text: #e3e6ec; --muted: #9ba2af;
+    --accent: #8ab4f8; --accent-text: #0b1d3a; --border: #2f343e; --error: #f2b8b5; --ok: #7dd89c;
+    --viewport: #14171c; --grid: #4a5160;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  header h1 { font-size: 17px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .layout { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; padding: 16px; min-height: calc(100dvh - 52px); }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  aside { display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-width: 0; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+  label.check { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+  input, select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; width: 100%; }
+  input[type=checkbox] { width: auto; }
+  input[type=file] { padding: 5px; }
+  .span2 { grid-column: 1 / -1; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; border: 0; border-radius: 20px; padding: 8px 16px; cursor: pointer; background: var(--accent); color: var(--accent-text); white-space: nowrap; }
+  button.secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+  button[disabled] { opacity: .45; cursor: default; }
+  progress { flex: 1; min-width: 80px; height: 8px; accent-color: var(--accent); }
+  .status { font-size: 12px; color: var(--muted); margin: 8px 0 0; overflow-wrap: anywhere; }
+  .status.error { color: var(--error); }
+  .status.ok { color: var(--ok); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 8px; }
+  .stat b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .stat span { font-size: 11px; color: var(--muted); }
+  main { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; min-width: 0; min-height: 420px; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tabs button { padding: 6px 14px; }
+  .tabs button[aria-pressed="false"] { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+  .tabs .spacer { flex: 1; }
+  #viewport { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: var(--viewport); min-height: 360px; }
+  #viewport canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #viewportHint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; text-align: center; padding: 16px; }
+  #layerRow input { flex: 1; }
+  #layerLabel { font-variant-numeric: tabular-nums; min-width: 90px; text-align: right; font-size: 12px; color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details pre { max-height: 220px; overflow: auto; font-size: 11px; white-space: pre-wrap; margin: 8px 0 0; }
+  .note { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+  .colour-rows { display: grid; gap: 8px; }
+  .colour-row { display: grid; grid-template-columns: 22px 1fr 110px; gap: 10px; align-items: center; font-size: 13px; }
+  .swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
+  .slot-rows { display: grid; gap: 8px; }
+  .slot-row { display: grid; grid-template-columns: 30px 38px 1fr 76px; gap: 8px; align-items: center; font-size: 13px; }
+  .slot-row input[type=color] { width: 38px; height: 30px; padding: 2px; }
+  details.section { border-top: 1px solid var(--border); padding: 6px 0; }
+  details.section > summary { font-size: 13px; color: var(--text); padding: 4px 0; }
+  details.section > summary .count { color: var(--accent); font-size: 11px; margin-left: 6px; }
+  .ov-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 0; font-size: 13px; }
+  .ov-row.sub { padding-left: 14px; }
+  .ov-row .file { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+  .ov-row .val { grid-column: 1 / -1; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .seg button { border-radius: 0; padding: 3px 9px; font-size: 11px; background: var(--surface-2); color: var(--text); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+  .ov-row .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 2px; }
+</style>
+<link rel="stylesheet" href="printer/printer.css">
+</head>
+<body>
+<header>
+  <h1>U1 Web Slicer</h1>
+  <span class="sub">Snapmaker Orca engine from the Android app, compiled to WebAssembly. Files never leave this browser tab.</span>
+  <a class="sub" style="margin-left:auto" href="https://github.com/nissy34/u1-slicer-for-android/tree/claude/wasm-spike/wasm" rel="noopener">Source (AGPL-3.0)</a>
+</header>
+<div class="layout">
+  <aside>
+    <section class="card">
+      <h2>Model</h2>
+      <div class="grid2">
+        <label class="span2">STL, 3MF or OBJ<input id="file" type="file" accept=".stl,.3mf,.obj"></label>
+        <label class="span2" id="plateWrap" hidden>Plate<select id="plate"></select></label>
+      </div>
+      <p class="status" id="modelStatus">Starting engine…</p>
+    </section>
+
+    <section class="card">
+      <h2>Filament slots</h2>
+      <div id="slotRows" class="slot-rows"></div>
+      <div class="grid2" style="margin-top:10px">
+        <label>Build plate<select id="plateType"></select></label>
+        <label>Bed (°C)<input id="bed_temp" type="number" readonly title="From the build plate and material; override under Settings → Temperature"></label>
+      </div>
+      <p class="note">Each U1 slot has its own material and nozzle temperature (blank = the material's default).</p>
+    </section>
+
+    <section class="card" id="coloursCard" hidden>
+      <h2 id="coloursTitle">Extruder</h2>
+      <div id="colourRows" class="colour-rows"></div>
+      <p class="note" id="coloursNote"></p>
+    </section>
+
+    <section class="card" id="arrangeCard" hidden>
+      <h2>Arrange</h2>
+      <div class="grid2">
+        <label>Copies<input id="copies" type="number" min="1" max="16" value="1"></label>
+        <label>Scale (%)<input id="scale" type="number" min="1" max="1000" step="1" value="100"></label>
+        <label>Rotate X (°)<input id="rotX" type="number" step="15" value="0"></label>
+        <label>Rotate Y (°)<input id="rotY" type="number" step="15" value="0"></label>
+        <label>Rotate Z (°)<input id="rotZ" type="number" step="15" value="0"></label>
+        <label>Add to bed<input id="addFile" type="file" accept=".stl,.3mf,.obj"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="autoArrange" class="secondary">Auto-arrange</button>
+        <button id="autoOrient" class="secondary">Auto-orient</button>
+        <button id="split" class="secondary">Split to objects</button>
+      </div>
+      <div id="objectPanel" class="grid2" style="margin-top:10px" hidden>
+        <label class="span2">Selected object<select id="objectSelect"></select></label>
+        <label>X (mm)<input id="objX" type="number" step="1"></label>
+        <label>Y (mm)<input id="objY" type="number" step="1"></label>
+        <label>Rotate Z (°)<input id="objRotZ" type="number" step="15"></label>
+        <label>Scale (%)<input id="objScale" type="number" min="1" step="1"></label>
+        <div class="row span2"><button id="duplicate" class="secondary">Duplicate</button></div>
+      </div>
+      <div id="towerPanel" class="grid2" style="margin-top:10px" hidden>
+        <label>Prime tower X<input id="towerX" type="number" step="1"></label>
+        <label>Prime tower Y<input id="towerY" type="number" step="1"></label>
+      </div>
+      <p class="note" id="arrangeNote">Drag the model or the grey prime-tower box on the bed to move them.</p>
+    </section>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <p class="note" style="margin-top:0">Each setting keeps the file's value (<b>File</b>), uses Orca's default (<b>Orca</b>), or your value (<b>Override</b>) — the app's Prepare-screen overrides.</p>
+      <div id="settingsSections"></div>
+      <div class="row" style="margin-top:8px"><button id="resetOverrides" class="secondary" hidden>Reset all overrides</button></div>
+      <div class="row" style="margin-top:12px">
+        <button id="slice" disabled>Slice</button>
+        <progress id="progress" max="100" value="0"></progress>
+      </div>
+      <p class="status" id="sliceStatus"></p>
+    </section>
+
+    <section class="card" id="resultCard" hidden>
+      <h2>Result</h2>
+      <div class="stats" id="stats"></div>
+      <div class="row" style="margin-top:12px">
+        <button id="download">Download G-code</button>
+      </div>
+    </section>
+
+    <section class="card" id="printerCard" hidden>
+      <h2>Send to printer</h2>
+      <div class="grid2">
+        <label class="span2">Printer address<input id="printerUrl" placeholder="192.168.1.50 or http://u1.local:7125" autocomplete="off"></label>
+        <label class="span2">Moonraker API key (optional)<input id="apiKey" type="password" autocomplete="off"></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="upload">Upload only</button>
+        <button id="testPrinter" class="secondary">Test connection</button>
+      </div>
+      <p class="note">Uploads to the printer's G-code list. It never starts a print — start it from the printer.</p>
+      <p class="status" id="printerStatus"></p>
+    </section>
+
+    <details class="card"><summary>Engine log</summary><pre id="log"></pre></details>
+  </aside>
+
+  <main>
+    <div class="tabs">
+      <button id="tabModel" aria-pressed="true">Model</button>
+      <button id="tabGcode" aria-pressed="false" disabled>G-code</button>
+      <span class="spacer"></span>
+      <label class="check" id="colorByWrap" hidden><select id="colorBy" style="width:auto"><option value="feature">Colour: feature</option><option value="tool">Colour: extruder</option></select></label>
+    </div>
+    <div id="viewport"><div id="viewportHint">Choose a model to begin</div></div>
+    <div>
+      <div class="row" id="layerRow" hidden>
+        <span>Layer</span><input id="layer" type="range" min="0" value="0"><span id="layerLabel"></span>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </main>
+</div>
+<script type="module" src="app.mjs"></script>
+<script type="module" src="printer/printer-tab.mjs"></script>
+</body>
+</html>

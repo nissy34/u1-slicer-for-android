@@ -5,18 +5,33 @@
 // JNI bridge between Android/Kotlin and PrusaSlicer C++ core
 // =============================================================================
 
-#include <jni.h>
 #include <string>
 #include <vector>
 #include <functional>
 #include <optional>
 #include <array>
-#include <android/log.h>
+
+// SAPIL_HAS_JNI: 1 for the Android .so (default), 0 for non-JVM hosts such as
+// the WebAssembly build in wasm/, which compiles the same engine sources
+// without the Kotlin bridge.
+#ifndef SAPIL_HAS_JNI
+#define SAPIL_HAS_JNI 1
+#endif
 
 #define SAPIL_TAG "SAPIL"
+#if SAPIL_HAS_JNI
+#include <jni.h>
+#include <android/log.h>
 #define SAPIL_LOGI(...) __android_log_print(ANDROID_LOG_INFO, SAPIL_TAG, __VA_ARGS__)
 #define SAPIL_LOGW(...) __android_log_print(ANDROID_LOG_WARN, SAPIL_TAG, __VA_ARGS__)
 #define SAPIL_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, SAPIL_TAG, __VA_ARGS__)
+#else
+#include <cstdio>
+#define SAPIL_LOG_(lvl, ...) (std::fprintf(stderr, "[" SAPIL_TAG " " lvl "] " __VA_ARGS__), std::fputc('\n', stderr))
+#define SAPIL_LOGI(...) SAPIL_LOG_("I", __VA_ARGS__)
+#define SAPIL_LOGW(...) SAPIL_LOG_("W", __VA_ARGS__)
+#define SAPIL_LOGE(...) SAPIL_LOG_("E", __VA_ARGS__)
+#endif
 
 namespace sapil {
 
@@ -334,11 +349,13 @@ private:
 // a BambuFileSnapshot-shaped JSON. Returns "" if g_model has no objects.
 std::string bambu_snapshot_json();
 
+#if SAPIL_HAS_JNI
 // ---- JNI Helpers ----
 SliceConfig configFromJava(JNIEnv* env, jobject jconfig);
 jobject configToJava(JNIEnv* env, const SliceConfig& config);
 jobject modelInfoToJava(JNIEnv* env, const ModelInfo& info);
 jobject previewMeshToJava(JNIEnv* env, const PreviewMesh& mesh);
 jobject sliceResultToJava(JNIEnv* env, const SliceResult& result);
+#endif
 
 } // namespace sapil

@@ -181,6 +181,17 @@ bool SlicerEngine::loadModel(const std::string& filepath, int plate_id) {
         // default for STL / OBJ / STEP and for the existing loadModel(path)
         // overload.
         std::vector<Slic3r::Preset*> project_presets;
+#ifdef SAPIL_WITH_STEP
+        // Orca routes STEP through a separate entry point; read_from_file()
+        // rejects .step/.stp. Only standalone builds with OCCT (wasm/) define
+        // SAPIL_WITH_STEP — Android ships the STEP stub and keeps the old path.
+        if (ext == "step" || ext == "stp") {
+            g_model = Slic3r::Model::read_from_step(
+                filepath, Slic3r::LoadStrategy::AddDefaultInstances,
+                /*stepFn=*/nullptr, /*stepIsUtf8Fn=*/nullptr, /*step_mesh_fn=*/nullptr,
+                /*linear_defletion=*/0.003, /*angle_defletion=*/0.5, /*is_split_compound=*/false);
+        } else
+#endif
         g_model = Slic3r::Model::read_from_file(
             filepath, &config, &config_substitutions,
             Slic3r::LoadStrategy::LoadModel | Slic3r::LoadStrategy::LoadConfig | Slic3r::LoadStrategy::AddDefaultInstances,
@@ -968,6 +979,7 @@ void SlicerEngine::releasePreparePreviewScene(PreparePreviewSceneHandle scene) c
     delete scene;
 }
 
+#if SAPIL_HAS_JNI
 // fix36: accessor for the per-volume triangle-count map captured during the most recent
 // getPreparePreviewMesh build. Returns the counts in mesh-build order (same as the volume
 // iteration in nativeGetAllVolumeExtruders). Kotlin combines this with the volume metadata
@@ -1006,6 +1018,13 @@ Java_com_u1_slicer_NativeLibrary_nativeGetPreviewModifierBlockStart(
         JNIEnv*, jobject) {
     return static_cast<jint>(g_preview_modifier_block_start);
 }
+
+#else // !SAPIL_HAS_JNI
+// Standalone hosts (the wasm web slicer): the same preview metadata the JNI accessors
+// above hand to Kotlin, as plain C++. Compiled out of the Android .so.
+std::vector<int> previewVolumeTriangleCounts() { return g_preview_volume_triangle_counts; }
+int previewModifierBlockStart() { return g_preview_modifier_block_start; }
+#endif // SAPIL_HAS_JNI
 
 // Accessor for sapil_print.cpp to get the app files directory
 std::string getFilesDir() { return g_files_dir; }
@@ -1290,6 +1309,7 @@ Slic3r::DynamicPrintConfig& getModelConfig() {
     return g_model_config;
 }
 
+#if SAPIL_HAS_JNI
 jobject modelInfoToJava(JNIEnv* env, const ModelInfo& info) {
     jclass cls = env->FindClass("com/u1/slicer/data/ModelInfo");
     if (!cls) {
@@ -1363,5 +1383,7 @@ jobject previewMeshToJava(JNIEnv* env, const PreviewMesh& mesh) {
     env->DeleteLocalRef(cls);
     return obj;
 }
+
+#endif // SAPIL_HAS_JNI
 
 } // namespace sapil

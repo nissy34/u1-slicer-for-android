@@ -19,6 +19,7 @@ namespace tbb {
 // Since this header is force-included before every .cpp, the guard
 // slic3r_Format_STEP_hpp_ will already be set when Model.hpp includes
 // "Format/STEP.hpp", causing the real OCCT-dependent header to be skipped.
-#ifdef __cplusplus
+// SAPIL_WITH_STEP (standalone/wasm builds with OCCT): use the real header.
+#if defined(__cplusplus) && !defined(SAPIL_WITH_STEP)
 #include "libslic3r_android/Format/STEP.hpp"
 #endif
